@@ -1,0 +1,10 @@
+{
+	"name": "psql-native",
+	"description": "A minimal D application.",
+	"copyright": "Copyright © 2015, yazan",
+	"authors": ["yazan"],
+	"dependencies": {
+		"vibe-d": "~>0.7.22"
+	},
+	"versions": ["VibeCustomMain"]
+}
