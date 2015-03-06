@@ -122,6 +122,102 @@ struct Query
 		}
 	}
 
+	auto rows()
+	{
+		static struct RowRange
+		{
+			private
+			{
+				Connection m_connection;
+				private bool m_empty = false;
+				private Row m_front;
+			}
+
+			this(Connection connection)
+			{
+				m_connection = connection;
+				popFront();
+			}
+
+			@property
+			bool empty()
+			{
+				return m_empty;
+			}
+
+			const(Row) front() const
+			{
+				assert(!m_empty);
+				return m_front;
+			}
+
+			void popFront()
+			{
+				assert(!m_empty);
+				with (m_connection)
+				{
+					char response;
+					u32 msgLength;
+
+					wait:
+					while (true)
+					{
+						// wait for DataRow/CommandComplete message or error
+						response = recv!ubyte();
+						msgLength = recv!u32();
+
+						switch (response)
+						{
+							case 'D': // DataRow
+								readDataRow(msgLength - u32size);
+								break wait;
+
+							case 'C': // CommandComplete
+								m_empty = true;
+								skipRecv(msgLength - u32size);
+								break wait;
+
+							case 'E': // ErrorResponse
+								m_empty = true;
+								handleErrorResponse(msgLength);
+								break wait;
+
+							case 'N': // NoticeResponse
+								handleNoticeResponse(msgLength);
+								break;
+
+							default:
+								throw new UnhandledMessageException();
+						}
+					}
+				}
+			}
+
+			private void readDataRow(u32 length)
+			{
+				assert(length >= u16size);
+				u16 nCols = m_connection.recv!u16();
+
+				m_front = Row();
+				if (nCols == 0) return;
+
+				m_front.columns = new Row.Column[nCols];
+				foreach (ref column; m_front.columns)
+				{
+					i32 size = m_connection.recv!i32();
+
+					if (size > 0)
+					{
+						column = new ubyte[size];
+						m_connection.recv(column);
+					}
+				}
+			}
+		}
+
+		return RowRange(m_connection);
+	}
+
 	@property
 	const(Field[]) fields() const
 	{
@@ -143,4 +239,10 @@ struct Field
 	i16 typeLength;
 	u32 typeModifier;
 	u16 representation;
+}
+
+struct Row
+{
+	alias Column = ubyte[];
+	private Column[] columns;
 }

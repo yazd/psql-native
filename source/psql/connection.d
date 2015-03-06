@@ -173,6 +173,11 @@ final class Connection
 		return bigEndianToNative!T(buf);
 	}
 
+	package void recv(ubyte[] buffer)
+	{
+		m_stream.read(buffer);
+	}
+
 	package T recv(T)(ref u32 maxLength) if (isSomeString!T)
 	{
 		import std.algorithm : countUntil;
