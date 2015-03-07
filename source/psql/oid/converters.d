@@ -1,15 +1,8 @@
-module psql.oid;
+module psql.oid.converters;
 
 import
+	psql.oid,
 	psql.common;
-
-struct Oid { u32 number; i16 length; }
-
-T fromTextRep(T)(const(char[]) text) if (hasUDA!(T, Oid) && !hasMember!(T, "fromTextRep"))
-{
-	import std.conv : to;
-	return text.to!T;
-}
 
 @Oid(16, 1)
 struct Bool
@@ -66,5 +59,5 @@ struct Int4
 @Oid(25, -1)
 struct Text
 {
-	char[] value;
+	string value;
 }

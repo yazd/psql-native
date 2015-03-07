@@ -1,8 +1,12 @@
 module psql.query;
 
 import
+	psql.oid,
 	psql.common,
 	psql.connection;
+
+debug import
+	std.stdio;
 
 struct Query
 {
@@ -41,7 +45,7 @@ struct Query
 			wait:
 			while (true)
 			{
-				// wait for RowDescription/ReadyForQuery message or error
+				// wait for RowDescription/CommandComplete message or error
 				response = recv!ubyte();
 				msgLength = recv!u32();
 
@@ -49,7 +53,7 @@ struct Query
 				{
 					case 'C': // CommandComplete
 						skipRecv(msgLength - u32size);
-						break;
+						break wait;
 
 					case 'G': // CopyInResponse
 						skipRecv(msgLength - u32size);
@@ -84,7 +88,7 @@ struct Query
 
 					case 'Z': // ReadyForQuery
 						handleReadyForQuery(msgLength);
-						break wait;
+						break;
 
 					case 'N': // NoticeResponse
 						handleNoticeResponse(msgLength);
@@ -124,98 +128,12 @@ struct Query
 
 	auto rows()
 	{
-		static struct RowRange
-		{
-			private
-			{
-				Connection m_connection;
-				private bool m_empty = false;
-				private Row m_front;
-			}
+		return RowRange!Row(m_connection);
+	}
 
-			this(Connection connection)
-			{
-				m_connection = connection;
-				popFront();
-			}
-
-			@property
-			bool empty()
-			{
-				return m_empty;
-			}
-
-			const(Row) front() const
-			{
-				assert(!m_empty);
-				return m_front;
-			}
-
-			void popFront()
-			{
-				assert(!m_empty);
-				with (m_connection)
-				{
-					char response;
-					u32 msgLength;
-
-					wait:
-					while (true)
-					{
-						// wait for DataRow/CommandComplete message or error
-						response = recv!ubyte();
-						msgLength = recv!u32();
-
-						switch (response)
-						{
-							case 'D': // DataRow
-								readDataRow(msgLength - u32size);
-								break wait;
-
-							case 'C': // CommandComplete
-								m_empty = true;
-								skipRecv(msgLength - u32size);
-								break wait;
-
-							case 'E': // ErrorResponse
-								m_empty = true;
-								handleErrorResponse(msgLength);
-								break wait;
-
-							case 'N': // NoticeResponse
-								handleNoticeResponse(msgLength);
-								break;
-
-							default:
-								throw new UnhandledMessageException();
-						}
-					}
-				}
-			}
-
-			private void readDataRow(u32 length)
-			{
-				assert(length >= u16size);
-				u16 nCols = m_connection.recv!u16();
-
-				m_front = Row();
-				if (nCols == 0) return;
-
-				m_front.columns = new Row.Column[nCols];
-				foreach (ref column; m_front.columns)
-				{
-					i32 size = m_connection.recv!i32();
-
-					if (size > 0)
-					{
-						column = new ubyte[size];
-						m_connection.recv(column);
-					}
-				}
-			}
-		}
-
-		return RowRange(m_connection);
+	auto fill(RowType)()
+	{
+		return RowRange!RowType(m_connection, m_fields);
 	}
 
 	@property
@@ -223,11 +141,6 @@ struct Query
 	{
 		return m_fields;
 	}
-}
-
-enum FieldRepresentation : u16
-{
-	text = 0, binary = 1,
 }
 
 struct Field
@@ -241,8 +154,171 @@ struct Field
 	u16 representation;
 }
 
+package struct RowRange(RowType)
+{
+	private
+	{
+		enum isGenericRow = is(RowType == psql.query.Row);
+
+		Connection m_connection;
+		bool m_empty = false;
+		RowType m_front;
+
+		static if (!isGenericRow)
+		{
+			ColumnMap!RowType[] m_mapping;
+		}
+	}
+
+	static if (isGenericRow)
+	{
+		this(Connection connection)
+		{
+			m_connection = connection;
+			popFront();
+		}
+	}
+	else
+	{
+		this(Connection connection, const(Field[]) fields)
+		{
+			m_connection = connection;
+			buildMapping(fields);
+			popFront();
+		}
+	}
+
+	@property
+	bool empty()
+	{
+		return m_empty;
+	}
+
+	const(RowType) front() const
+	{
+		assert(!m_empty);
+		return m_front;
+	}
+
+	void popFront()
+	{
+		assert(!m_empty);
+		with (m_connection)
+		{
+			char response;
+			u32 msgLength;
+
+			wait:
+			while (true)
+			{
+				// wait for DataRow/CommandComplete message or error
+				response = recv!ubyte();
+				msgLength = recv!u32();
+
+				switch (response)
+				{
+					case 'D': // DataRow
+						readDataRow(msgLength - u32size);
+						break wait;
+
+					case 'C': // CommandComplete
+						m_empty = true;
+						skipRecv(msgLength - u32size);
+						break wait;
+
+					case 'E': // ErrorResponse
+						m_empty = true;
+						handleErrorResponse(msgLength);
+						break wait;
+
+					case 'N': // NoticeResponse
+						handleNoticeResponse(msgLength);
+						break;
+
+					default:
+						debug writeln(response);
+						throw new UnhandledMessageException();
+				}
+			}
+		}
+	}
+
+	private void readDataRow(u32 length)
+	{
+		assert(length >= u16size);
+		u16 nCols = m_connection.recv!u16();
+
+		m_front = RowType();
+		if (nCols == 0) return;
+
+		static if (isGenericRow)
+		{
+			m_front.columns = new Row.Column[nCols];
+			foreach (ref column; m_front.columns)
+			{
+				i32 size = m_connection.recv!i32();
+
+				if (size > 0)
+				{
+					column = new ubyte[size];
+					m_connection.recv(column);
+				}
+			}
+		}
+		else
+		{
+			foreach (columnIndex; 0 .. nCols)
+			{
+				i32 size = m_connection.recv!i32();
+
+				if (size > 0)
+				{
+					if (m_mapping[columnIndex].fill !is null)
+					{
+						m_mapping[columnIndex].fill(m_front, m_connection, size);
+					}
+					else
+					{
+						m_connection.skipRecv(size);
+					}
+				}
+			}
+		}
+	}
+
+	static if (!isGenericRow)
+	{
+		private void buildMapping(const(Field[]) fields)
+		{
+			m_mapping = new ColumnMap!RowType[fields.length];
+			foreach (immutable i, const ref field; fields)
+			{
+				nameSwitch:
+				switch (field.name)
+				{
+					foreach (dataMemberName; getDataMembers!RowType)
+					{
+						case dataMemberName:
+							m_mapping[i].fill = getMapFunction!(RowType, dataMemberName, FieldRepresentation.text)();
+							break nameSwitch;
+					}
+
+					default:
+						m_mapping[i].fill = null;
+				}
+			}
+		}
+	}
+}
+
 struct Row
 {
 	alias Column = ubyte[];
-	private Column[] columns;
+	Column[] columns;
+}
+
+// this contains data on how to read a column and fill it
+struct ColumnMap(RowType)
+{
+	void function(ref RowType row, Connection connection, u32 size) fill;
 }
