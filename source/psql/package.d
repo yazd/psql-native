@@ -21,6 +21,8 @@ final class PSQL
 		m_pool = new ConnectionPool!Connection({
 			auto ret = new Connection(database, username, host, port);
 			ret.connect();
+			ret.authenticate();
+			ret.waitForSetup();
 			return ret;
 		});
 	}

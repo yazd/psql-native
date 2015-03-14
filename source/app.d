@@ -5,20 +5,60 @@ void main()
 {
 	auto psql = new PSQL("codename", "yazan", "127.0.0.1", 5432);
 	auto conn = psql.lockConnection();
-	auto query = Query(conn, "SELECT * FROM tbl_people");
+	auto id   = 0;
 
-	foreach (row; query.rows())
 	{
-		foreach (i, field; query.fields())
+		writeln("QUERY ", ++id, ": ", "SELECT * FROM tbl_people");
+		auto query = conn.query("SELECT * FROM tbl_people");
+
+		foreach (row; query.rows())
 		{
-			writeln(field.name, ": ", cast(char[]) row.columns[i]);
+			foreach (i, field; query.fields())
+			{
+				writeln(field.name, ": ", cast(char[]) row.columns[i]);
+			}
 		}
+
+		query.close();
+		writeln();
 	}
 
-	query = Query(conn, "SELECT * FROM tbl_people");
-	foreach (person; query.fill!Person())
 	{
-		writeln(person);
+		writeln("QUERY ", ++id, ": ", "SELECT * FROM tbl_people; SELECT * FROM tbl_people");
+		auto query = conn.query("SELECT * FROM tbl_people; SELECT * FROM tbl_people");
+
+		foreach (row; query.rows())
+		{
+			foreach (i, field; query.fields())
+			{
+				writeln(field.name, ": ", cast(char[]) row.columns[i]);
+			}
+		}
+
+		query.nextCommand();
+		foreach (row; query.rows())
+		{
+			foreach (i, field; query.fields())
+			{
+				writeln(field.name, ": ", cast(char[]) row.columns[i]);
+			}
+		}
+
+		query.close();
+		writeln();
+	}
+
+	{
+		writeln("QUERY ", ++id, ": ", "SELECT * FROM tbl_people");
+		auto query = conn.query("SELECT * FROM tbl_people");
+
+		foreach (person; query.fill!Person())
+		{
+			writeln(person);
+		}
+
+		query.close();
+		writeln();
 	}
 }
 
@@ -26,6 +66,6 @@ struct Person
 {
 	int id;
 	string name;
-	string email;
 	string password;
+	string email;
 }

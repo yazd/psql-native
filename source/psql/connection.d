@@ -1,7 +1,8 @@
 module psql.connection;
 
 import
-	psql.common;
+	psql.common,
+	psql.query;
 
 import
 	vibe.core.net;
@@ -16,23 +17,19 @@ final class Connection
 	package
 	{
 		TCPConnection m_connection;
-		Stream m_stream;
+		ConnectionState m_state;
 
 		string m_db;
 		string m_username;
 		string m_host;
 		ushort m_port;
-
-		enum TransactionStatus
-		{
-			idle = 'I', inBlock = 'T', inFailedBlock = 'E'
-		}
 	}
 
 	static immutable u32 protocolVersion = 0x00030000;
 
 	this(string database, string username, string host, ushort port)
 	{
+		m_state = ConnectionState.setup;
 		m_db = database;
 		m_username = username;
 		m_host = host;
@@ -41,13 +38,15 @@ final class Connection
 
 	void connect()
 	{
+		m_state = ConnectionState.connecting;
 		m_connection = connectTCP(m_host, m_port);
-		m_stream = m_connection;
-		authenticate();
+		m_state = ConnectionState.connected;
 	}
 
 	void authenticate()
 	{
+		m_state = ConnectionState.authenticating;
+
 		// request
 		{
 			static immutable userMsg = "user";
@@ -86,106 +85,137 @@ final class Connection
 			enforce(response == 'R', "protocol error");
 			u32 auth = recv!u32();
 			enforce(auth == 0, "authentication failure");
+			m_state = ConnectionState.authenticated;
+		}
+	}
 
-			wait:
-			while (true)
+	void waitForSetup()
+	{
+		m_state = ConnectionState.backendSetup;
+
+		wait:
+		while (true)
+		{
+			// wait for ReadyForQuery message or error
+			char response = recv!ubyte();
+			u32 msgLength = recv!u32();
+
+			switch (response)
 			{
-				// wait for ReadyForQuery message or error
-				response = recv!ubyte();
-				msgLength = recv!u32();
+				case 'K': // BackendKeyData
+					skipRecv(msgLength - u32size);
+					break;
 
-				switch (response)
-				{
-					case 'K': // BackendKeyData
-						skipRecv(msgLength - u32size);
-						break;
+				case 'S': // ParameterStatus
+					skipRecv(msgLength - u32size);
+					break;
 
-					case 'S': // ParameterStatus
-						skipRecv(msgLength - u32size);
-						break;
+				case 'Z': // ReadyForQuery
+					auto transactionStatus = handleReadyForQuery(msgLength);
+					assert(transactionStatus == TransactionStatus.idle);
+					break wait;
 
-					case 'Z': // ReadyForQuery
-						assert(handleReadyForQuery(msgLength) == TransactionStatus.idle);
-						break wait;
+				case 'E': // ErrorResponse
+					handleErrorResponse(msgLength);
+					throw new Exception("error response received");
 
-					case 'E': // ErrorResponse
-						skipRecv(msgLength - u32size);
-						throw new Exception("error response received");
+				case 'N': // NoticeResponse
+					handleNoticeResponse(msgLength);
+					break;
 
-					case 'N': // NoticeResponse
-						handleNoticeResponse(msgLength);
-						break;
-
-					default:
-						assert(0);
-				}
+				default:
+					m_state = ConnectionState.invalid;
+					assert(0);
 			}
 		}
 	}
 
-	package TransactionStatus handleReadyForQuery(u32 length)
+	SimpleQuery query(const(char[]) command)
 	{
+		assert(m_state == ConnectionState.readyForQuery);
+
+		SimpleQuery q = SimpleQuery(this);
+		q.sendCommand(command);
+		q.nextCommand();
+		return q;
+	}
+
+	package
+	TransactionStatus handleReadyForQuery(u32 length)
+	{
+		m_state = ConnectionState.readyForQuery;
 		assert(length == 5);
 		char indicator = recv!ubyte();
 		return indicator.to!TransactionStatus;
 	}
 
-	package void handleNoticeResponse(u32 length)
+	package
+	void handleNoticeResponse(u32 length)
 	{
 		skipRecv(length - u32size);
+		// if (m_onNotice) m_onNotice();
 	}
 
-	package void handleErrorResponse(u32 length)
+	package
+	void handleErrorResponse(u32 length)
 	{
+		m_state = ConnectionState.invalid;
 		skipRecv(length - u32size);
 		throw new ErrorResponseException();
 	}
 
-	package void send(T)(T value) if (isNumeric!T)
+	package
+	void send(T)(T value) if (isNumeric!T)
 	{
 		import std.bitmanip;
-		m_stream.write(value.nativeToBigEndian());
+		m_connection.write(value.nativeToBigEndian());
 	}
 
-	package void send(T)(T value) if (isSomeString!T)
+	package
+	void send(T)(T value) if (isSomeString!T)
 	{
 		import std.string;
-		m_stream.write(value.representation);
+		m_connection.write(value.representation);
 	}
 
-	package void sendz(T)(T value) if (isSomeString!T)
+	package
+	void sendz(T)(T value) if (isSomeString!T)
 	{
 		import std.string;
-		m_stream.write(value.representation);
-		m_stream.write(['\0']);
+		m_connection.write(value.representation);
+		m_connection.write(['\0']);
 	}
 
-	package void flush()
+	package
+	void flush()
 	{
-		m_stream.flush();
+		m_connection.flush();
 	}
 
-	package T recv(T)() if (isNumeric!T)
+	package
+	T recv(T)() if (isNumeric!T)
 	{
 		import std.bitmanip;
 		ubyte[T.sizeof] buf;
-		m_stream.read(buf);
+		m_connection.read(buf);
 		return bigEndianToNative!T(buf);
 	}
 
-	package void recv(ubyte[] buffer)
+	package
+	void recv(ubyte[] buffer)
 	{
-		m_stream.read(buffer);
+		m_connection.read(buffer);
 	}
 
-	package T recv(T)(ref u32 maxLength) if (isSomeString!T)
+	package
+	T recv(T)(ref u32 maxLength) if (isSomeString!T)
 	{
 		import std.algorithm : countUntil;
 
 		// reads until \0 byte
-		while (m_stream.dataAvailableForRead())
+		while (m_connection.dataAvailableForRead())
 		{
-			const(ubyte[]) availableData = m_stream.peek();
+			const(ubyte[]) availableData = m_connection.peek();
 
 			auto strLength = availableData.countUntil('\0');
 			if (strLength >= 0)
@@ -193,7 +223,7 @@ final class Connection
 				enforceEx!ProtocolException(strLength < maxLength);
 				char[] buffer = new char[strLength];
 				ubyte[] buf = (cast(ubyte*) buffer.ptr)[0 .. strLength];
-				m_stream.read(buf); // read string
+				m_connection.read(buf); // read string
 				skipRecv(1); // skip zero
 				maxLength -= strLength + 1;
 				return assumeUnique(buffer);
@@ -203,12 +233,25 @@ final class Connection
 		return null;
 	}
 
-	package void skipRecv(u32 bytes)
+	package
+	void skipRecv(u32 bytes)
 	{
-		import core.stdc.stdlib;
-		ubyte* buf = cast(ubyte*) malloc(bytes);
-		ubyte[] writeTo = buf[0 .. bytes];
-		m_stream.read(writeTo);
-		free(buf);
+		ubyte[32] buf;
+		while (bytes > 0)
+		{
+			u32 l = bytes > buf.length ? buf.length : bytes;
+			m_connection.read(buf[0 .. l]);
+			bytes -= l;
+		}
 	}
+}
+
+enum ConnectionState
+{
+	setup, connecting, connected, authenticating, authenticated, backendSetup, readyForQuery, inQuery, closing, invalid,
+}
+
+enum TransactionStatus
+{
+	idle = 'I', inBlock = 'T', inFailedBlock = 'E'
 }

@@ -8,33 +8,102 @@ import
 debug import
 	std.stdio;
 
-struct Query
+struct SimpleQuery
 {
 	private
 	{
 		Connection m_connection;
 		Field[] m_fields;
+		bool m_done;
 	}
 
-	this(Connection connection, const(char[]) simpleQuery)
+	package
+	this(Connection connection)
 	{
 		m_connection = connection;
+	}
+
+	void close(bool consumeAll = false)
+	{
+		if (!m_done)
+		{
+			assert(m_connection.m_state == ConnectionState.inQuery);
+
+			with (m_connection)
+			{
+				char response;
+				u32 msgLength;
+
+				wait:
+				while (true)
+				{
+					// expect ReadyForQuery
+					response = recv!ubyte();
+					msgLength = recv!u32();
+
+					switch (response)
+					{
+						case 'C': // CommandComplete
+						case 'D': // DataRow
+						case 'T': // RowDescription
+							if (consumeAll)
+							{
+								skipRecv(msgLength - u32size);
+								break;
+							}
+							else
+							{
+								goto default;
+							}
+
+						case 'E': // ErrorResponse
+							handleErrorResponse(msgLength);
+							break wait;
+
+						case 'Z': // ReadyForQuery
+							handleReadyForQuery(msgLength);
+							m_done = true;
+							break wait;
+
+						case 'N': // NoticeResponse
+							handleNoticeResponse(msgLength);
+							break;
+
+						default:
+							skipRecv(msgLength - u32size);
+							throw new UnhandledMessageException();
+					}
+				}
+			}
+		}
+	}
+
+	package
+	void sendCommand(const(char[]) command)
+	{
+		assert(m_connection.m_state == ConnectionState.readyForQuery);
+		m_connection.m_state = ConnectionState.inQuery;
 
 		// request
 		{
-			u32 msgLength = cast(u32) (
+			immutable u32 msgLength = cast(u32) (
 				u32.sizeof +
-				simpleQuery.length + 1
+				command.length + 1
 			);
 
 			with (m_connection)
 			{
 				send!ubyte('Q'); // query
 				send(msgLength);
-				sendz(simpleQuery);
+				sendz(command);
 				flush();
 			}
 		}
+	}
+
+	void nextCommand()
+	{
+		assert(m_connection.m_state == ConnectionState.inQuery);
 
 		// response
 		with (m_connection)
@@ -55,21 +124,6 @@ struct Query
 						skipRecv(msgLength - u32size);
 						break wait;
 
-					case 'G': // CopyInResponse
-						skipRecv(msgLength - u32size);
-						// send CopyFail
-						{
-							send!ubyte('f');
-							send!u32(u32size + 1);
-							send!ubyte('\0');
-						}
-
-						throw new UnhandledMessageException();
-
-					case 'H': // CopyOutResponse
-						skipRecv(msgLength - u32size);
-						throw new UnhandledMessageException();
-
 					case 'T': // RowDescription
 						readRowDescription(msgLength);
 						break wait;
@@ -87,14 +141,16 @@ struct Query
 						break wait;
 
 					case 'Z': // ReadyForQuery
-						handleReadyForQuery(msgLength);
-						break;
+						throw new UnexpectedMessageException();
+						//handleReadyForQuery(msgLength);
+						//break wait;
 
 					case 'N': // NoticeResponse
 						handleNoticeResponse(msgLength);
 						break;
 
 					default:
+						skipRecv(msgLength - u32size);
 						throw new UnhandledMessageException();
 				}
 			}
@@ -103,6 +159,7 @@ struct Query
 
 	private void readRowDescription(u32 length)
 	{
+		assert(m_connection.m_state == ConnectionState.inQuery);
 		assert(length >= u16size);
 
 		with (m_connection)
@@ -154,7 +211,8 @@ struct Field
 	u16 representation;
 }
 
-package struct RowRange(RowType)
+package
+struct RowRange(RowType)
 {
 	private
 	{
@@ -202,7 +260,9 @@ package struct RowRange(RowType)
 
 	void popFront()
 	{
+		assert(m_connection.m_state == ConnectionState.inQuery);
 		assert(!m_empty);
+
 		with (m_connection)
 		{
 			char response;
