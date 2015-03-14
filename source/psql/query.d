@@ -8,6 +8,9 @@ import
 debug import
 	std.stdio;
 
+/**
+ * A SimpleQuery provides a way to do simple SQL commands without much setup.
+ */
 struct SimpleQuery
 {
 	private
@@ -23,6 +26,17 @@ struct SimpleQuery
 		m_connection = connection;
 	}
 
+	/**
+	 * Puts the connection back in a state where it can send new queries.
+	 *
+	 * Params:
+	 *	 consumeAll = if `consumeAll` is false, all data from the query must
+	 *								already be consumed and all command completion messages
+	 *								be received.
+	 *                If `consumeAll` is true, all data left will be consumed
+	 *								until the connection can be put back in a state where
+	 *								it can send new queries.
+	 */
 	void close(bool consumeAll = false)
 	{
 		if (!m_done)
@@ -78,6 +92,9 @@ struct SimpleQuery
 		}
 	}
 
+	/**
+	 * Sends the SQL command/commands to the server.
+	 */
 	package
 	void sendCommand(const(char[]) command)
 	{
@@ -101,9 +118,14 @@ struct SimpleQuery
 		}
 	}
 
+	/**
+	 * If multiple commands are sent, this function must be called
+	 * to separate handling of the commands.
+	 */
 	void nextCommand()
 	{
 		assert(m_connection.m_state == ConnectionState.inQuery);
+		m_fields = null;
 
 		// response
 		with (m_connection)
@@ -157,7 +179,11 @@ struct SimpleQuery
 		}
 	}
 
-	private void readRowDescription(u32 length)
+	/**
+	 * Reads the row description message and fills the fields array.
+	 */
+	private
+	void readRowDescription(u32 length)
 	{
 		assert(m_connection.m_state == ConnectionState.inQuery);
 		assert(length >= u16size);
@@ -183,16 +209,28 @@ struct SimpleQuery
 		}
 	}
 
+	/**
+	 * Returns a generic `RowRange`, an input range, to provide the data returned by the server.
+	 */
 	auto rows()
 	{
 		return RowRange!Row(m_connection);
 	}
 
+	/**
+	 * Returns a `RowRange`, an input range, that automatically fills types `RowType`
+	 * to provide the data returned by the server.
+	 *
+	 * The mapping of the columns is done by name matching.
+	 */
 	auto fill(RowType)()
 	{
 		return RowRange!RowType(m_connection, m_fields);
 	}
 
+	/**
+	 * Returns the fields description.
+	 */
 	@property
 	const(Field[]) fields() const
 	{
@@ -200,6 +238,9 @@ struct SimpleQuery
 	}
 }
 
+/**
+ * Field description
+ */
 struct Field
 {
 	string name;
@@ -211,6 +252,9 @@ struct Field
 	u16 representation;
 }
 
+/**
+ * RowRange is an input range that provides the data returned from the server.
+ */
 package
 struct RowRange(RowType)
 {
@@ -230,6 +274,10 @@ struct RowRange(RowType)
 
 	static if (isGenericRow)
 	{
+		/**
+		 * Constructs a `RowRange` from a connection and reads the first data row.
+		 */
+		package
 		this(Connection connection)
 		{
 			m_connection = connection;
@@ -238,6 +286,10 @@ struct RowRange(RowType)
 	}
 	else
 	{
+		/**
+		 * Constructs a `RowRange` from a connection, builds field mapping and reads the first data row.
+		 */
+		package
 		this(Connection connection, const(Field[]) fields)
 		{
 			m_connection = connection;
@@ -246,18 +298,27 @@ struct RowRange(RowType)
 		}
 	}
 
+	/**
+	 * Input range primitve `empty`.
+	 */
 	@property
 	bool empty()
 	{
 		return m_empty;
 	}
 
+	/**
+	 * Input range primitve `front`. Returns a `RowType`.
+	 */
 	const(RowType) front() const
 	{
 		assert(!m_empty);
 		return m_front;
 	}
 
+	/**
+	 * Input range primitve `popFront`.
+	 */
 	void popFront()
 	{
 		assert(m_connection.m_state == ConnectionState.inQuery);
@@ -303,7 +364,11 @@ struct RowRange(RowType)
 		}
 	}
 
-	private void readDataRow(u32 length)
+	/**
+	 * Implementation of data row parsing.
+	 */
+	private
+	void readDataRow(u32 length)
 	{
 		assert(length >= u16size);
 		u16 nCols = m_connection.recv!u16();
@@ -348,6 +413,9 @@ struct RowRange(RowType)
 
 	static if (!isGenericRow)
 	{
+		/**
+		 * Builds the mapping from the fields to `RowType`.
+		 */
 		private void buildMapping(const(Field[]) fields)
 		{
 			m_mapping = new ColumnMap!RowType[fields.length];
@@ -371,13 +439,20 @@ struct RowRange(RowType)
 	}
 }
 
+/**
+ * Generic row.
+ * It is a list of columns.
+ */
 struct Row
 {
 	alias Column = ubyte[];
 	Column[] columns;
 }
 
-// this contains data on how to read a column and fill it
+/**
+ * Mapping used to read from connection and fill `RowType` directly.
+ */
+private
 struct ColumnMap(RowType)
 {
 	void function(ref RowType row, Connection connection, u32 size) fill;

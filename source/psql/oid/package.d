@@ -8,13 +8,24 @@ import
 import
 	std.typetuple;
 
+/**
+ * Field representation (text or binary).
+ */
 enum FieldRepresentation : u16
 {
 	text = 0, binary = 1,
 }
 
+/**
+ * Postgres oid.
+ *
+ * Contains oid number and data type size.
+ */
 struct Oid { u32 number; i16 length; }
 
+/**
+ * Returns whether the `Thing` is considered an oid.
+ */
 template isOidConverter(alias Thing)
 {
 	static if (!is(Thing == struct) && !is(Thing == class))
@@ -27,8 +38,14 @@ template isOidConverter(alias Thing)
 	}
 }
 
+/**
+ * Returns the native type that the oid converts to.
+ */
 alias OidConverterType(OidType) = typeof(__traits(getMember, OidType, "value"));
 
+/**
+ * Default implementation of a field's text representation conversion to native data type.
+ */
 template fromTextRep(OidConverter) if (hasUDA!(OidConverter, Oid))
 {
 	static if (hasMember!(OidConverter, "fromTextRep"))
@@ -45,6 +62,9 @@ template fromTextRep(OidConverter) if (hasUDA!(OidConverter, Oid))
 	}
 }
 
+/**
+ * Default implementation of a field's binary representation conversion to native data type.
+ */
 template fromBinaryRep(OidConverter) if (hasUDA!(OidConverter, Oid))
 {
 	static if (hasMember!(OidConverter, "fromBinaryRep"))
@@ -66,6 +86,9 @@ template fromBinaryRep(OidConverter) if (hasUDA!(OidConverter, Oid))
 	}
 }
 
+/**
+ * Constructs a function to map a data row directly into a type `RowType`.
+ */
 void function(ref RowType row, Connection connection, u32 size) getMapFunction(RowType, string MemberName, FieldRepresentation representation)()
 {
 	alias ColumnType = typeof(__traits(getMember, RowType, MemberName));

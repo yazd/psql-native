@@ -12,6 +12,14 @@ import
 	std.exception,
 	std.traits;
 
+/**
+ * Postgres connection.
+ *
+ * The connection goes through different phases before it becomes ready for querying.
+ * Firstly, a TCP connection is made. An authentication cycle follows.
+ * The postgres server backend then takes some time to be setup.
+ * After that is done, the connection should be ready to send queries.
+ */
 final class Connection
 {
 	package
@@ -27,6 +35,9 @@ final class Connection
 
 	static immutable u32 protocolVersion = 0x00030000;
 
+	/**
+	 * Constructs a Connection using the parameters provided.
+	 */
 	this(string database, string username, string host, ushort port)
 	{
 		m_state = ConnectionState.setup;
@@ -36,6 +47,9 @@ final class Connection
 		m_port = port;
 	}
 
+	/**
+	 * Initiates a TCP connection to the server.
+	 */
 	void connect()
 	{
 		m_state = ConnectionState.connecting;
@@ -43,6 +57,9 @@ final class Connection
 		m_state = ConnectionState.connected;
 	}
 
+	/**
+	 * Handles the authentication cycle.
+	 */
 	void authenticate()
 	{
 		m_state = ConnectionState.authenticating;
@@ -89,6 +106,9 @@ final class Connection
 		}
 	}
 
+	/**
+	 * Waits until the server backend is setup and ready.
+	 */
 	void waitForSetup()
 	{
 		m_state = ConnectionState.backendSetup;
@@ -112,7 +132,7 @@ final class Connection
 
 				case 'Z': // ReadyForQuery
 					auto transactionStatus = handleReadyForQuery(msgLength);
-					assert(transactionStatus == TransactionStatus.idle);
+					assert(transactionStatus == TransactionState.idle);
 					break wait;
 
 				case 'E': // ErrorResponse
@@ -130,6 +150,9 @@ final class Connection
 		}
 	}
 
+	/**
+	 * Sends a SQL command to the server. Multiple commands separated by semicolons can also be sent.
+	 */
 	SimpleQuery query(const(char[]) command)
 	{
 		assert(m_state == ConnectionState.readyForQuery);
@@ -140,15 +163,23 @@ final class Connection
 		return q;
 	}
 
+	/**
+	 * Changes the connection state to readyForQuery and reads transaction state.
+	 */
 	package
-	TransactionStatus handleReadyForQuery(u32 length)
+	TransactionState handleReadyForQuery(u32 length)
 	{
 		m_state = ConnectionState.readyForQuery;
 		assert(length == 5);
 		char indicator = recv!ubyte();
-		return indicator.to!TransactionStatus;
+		return indicator.to!TransactionState;
 	}
 
+	/**
+	 * Reads the notice message sent by the server and provides it using a callback.
+	 *
+	 * TODO: provide notice using a callback.
+	 */
 	package
 	void handleNoticeResponse(u32 length)
 	{
@@ -156,6 +187,9 @@ final class Connection
 		// if (m_onNotice) m_onNotice();
 	}
 
+	/**
+	 * Changes the connection state to invalid and throws an ErrorResponseException.
+	 */
 	package
 	void handleErrorResponse(u32 length)
 	{
@@ -164,6 +198,9 @@ final class Connection
 		throw new ErrorResponseException();
 	}
 
+	/**
+	 * Sends a numeric value using the proper endianness on the connection.
+	 */
 	package
 	void send(T)(T value) if (isNumeric!T)
 	{
@@ -171,6 +208,12 @@ final class Connection
 		m_connection.write(value.nativeToBigEndian());
 	}
 
+	/**
+	 * Sends a string on the connection. It is not zero-terminated.
+	 *
+	 * See_Also:
+	 *  sendz
+	 */
 	package
 	void send(T)(T value) if (isSomeString!T)
 	{
@@ -178,6 +221,12 @@ final class Connection
 		m_connection.write(value.representation);
 	}
 
+	/**
+	 * Sends a zero-terminated string on the connection.
+	 *
+	 * See_Also:
+	 *  send
+	 */
 	package
 	void sendz(T)(T value) if (isSomeString!T)
 	{
@@ -186,12 +235,18 @@ final class Connection
 		m_connection.write(['\0']);
 	}
 
+	/**
+	 * Flushes the connection.
+	 */
 	package
 	void flush()
 	{
 		m_connection.flush();
 	}
 
+	/**
+	 * Receives a numeric value and returns it as a native datatype.
+	 */
 	package
 	T recv(T)() if (isNumeric!T)
 	{
@@ -201,12 +256,18 @@ final class Connection
 		return bigEndianToNative!T(buf);
 	}
 
+	/**
+	 * Receives raw bytes and fills them in `buffer`.
+	 */
 	package
 	void recv(ubyte[] buffer)
 	{
 		m_connection.read(buffer);
 	}
 
+	/**
+	 * Receives a zero-terminated string with the specified `maxLength`.
+	 */
 	package
 	T recv(T)(ref u32 maxLength) if (isSomeString!T)
 	{
@@ -233,6 +294,9 @@ final class Connection
 		return null;
 	}
 
+	/**
+	 * Reads and skips the next `bytes` bytes on the connection.
+	 */
 	package
 	void skipRecv(u32 bytes)
 	{
@@ -246,12 +310,18 @@ final class Connection
 	}
 }
 
+/**
+ * Connection state
+ */
 enum ConnectionState
 {
 	setup, connecting, connected, authenticating, authenticated, backendSetup, readyForQuery, inQuery, closing, invalid,
 }
 
-enum TransactionStatus
+/**
+ * Transaction state
+ */
+enum TransactionState
 {
 	idle = 'I', inBlock = 'T', inFailedBlock = 'E'
 }

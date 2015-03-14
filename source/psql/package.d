@@ -7,6 +7,9 @@ public import
 import
 	vibe.core.connectionpool;
 
+/**
+ * PSQL is the source of connections to a postgres database.
+ */
 final class PSQL
 {
 	private
@@ -16,6 +19,9 @@ final class PSQL
 
 	static immutable ushort defaultPort = 5432;
 
+	/**
+	 * Setups postgres connection parameters for new connections.
+	 */
 	this(string database, string username, string host, ushort port = defaultPort)
 	{
 		m_pool = new ConnectionPool!Connection({
@@ -27,6 +33,10 @@ final class PSQL
 		});
 	}
 
+	/**
+	 * Provides a new postgres connection associated with the calling fiber.
+	 * The connection provided will be ready to make queries.
+	 */
 	auto lockConnection()
 	{
 		return m_pool.lockConnection();
