@@ -59,6 +59,7 @@ struct SimpleQuery
 					{
 						case 'C': // CommandComplete
 						case 'D': // DataRow
+						case 'I': // EmptyQueryMessage
 						case 'T': // RowDescription
 							if (consumeAll)
 							{
