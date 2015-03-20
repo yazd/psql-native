@@ -11,3 +11,4 @@ The library is still a work in progress and major re-architecturing may happen a
 
 Once the first release is done, issues and contributions are welcome.
 
+Waffle.io: [![Issues next](https://badge.waffle.io/yazd/psql-native.png?label=next&title=Next)] (https://waffle.io/yazd/psql-native) [![Issues in progress](https://badge.waffle.io/yazd/psql-native.png?label=in%20progress&title=In%20Progress)](https://waffle.io/yazd/psql-native)
