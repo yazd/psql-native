@@ -2,6 +2,7 @@ module psql;
 
 public import
 	psql.connection,
+	psql.exceptions,
 	psql.query;
 
 import

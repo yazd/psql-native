@@ -1,4 +1,5 @@
 import std.stdio;
+import std.exception;
 import psql;
 
 void main()
@@ -44,7 +45,6 @@ void testTwoCommandsQuery(Connection conn)
 		}
 	}
 
-	query.nextCommand();
 	foreach (row; query.rows())
 	{
 		foreach (i, field; query.fields())
@@ -74,16 +74,20 @@ void testTypedRowSelect(Connection conn)
 void testSimpleInsert(Connection conn)
 {
 	writeln("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
+
 	auto query = conn.query("INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 	query.close();
+
 	writeln();
 }
 
 void testSimpleDelete(Connection conn)
 {
 	writeln("QUERY: ", "DELETE FROM tbl_people WHERE name = 'test'");
+
 	auto query = conn.query("DELETE FROM tbl_people WHERE name = 'test'");
 	query.close();
+
 	writeln();
 }
 
@@ -91,16 +95,13 @@ void testHandleError(Connection conn)
 {
 	writeln("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 
-	SimpleQuery query;
-	try
-	{
-		query = conn.query("INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
-	}
-	finally
-	{
+	assertThrown!ErrorResponseException(() {
+		// unique constraint problem
+		auto query = conn.query("INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 		query.close();
-	}
-	writeln();
+	}());
+
+	testGenericRowSelect(conn);
 }
 
 struct Person

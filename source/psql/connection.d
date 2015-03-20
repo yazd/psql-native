@@ -2,6 +2,7 @@ module psql.connection;
 
 import
 	psql.common,
+	psql.exceptions,
 	psql.query;
 
 import
@@ -159,7 +160,6 @@ final class Connection
 
 		SimpleQuery q = SimpleQuery(this);
 		q.sendCommand(command);
-		q.nextCommand();
 		return q;
 	}
 
@@ -188,13 +188,43 @@ final class Connection
 	}
 
 	/**
-	 * Changes the connection state to invalid and throws an ErrorResponseException.
+	 * Changes the connection state to invalid, attempts to restore state for more queries.
+	 * If successful, changes connection state accordingly and throws an ErrorResponseException.
 	 */
 	package
 	void handleErrorResponse(u32 length)
 	{
 		m_state = ConnectionState.invalid;
 		skipRecv(length - u32size);
+
+		{
+			// cleanup error state
+			wait:
+			while (true)
+			{
+				// wait for ReadyForQuery message or error
+				char response = recv!ubyte();
+				u32 msgLength = recv!u32();
+
+				switch (response)
+				{
+					case 'Z': // ReadyForQuery
+						auto transactionStatus = handleReadyForQuery(msgLength);
+						assert(transactionStatus == TransactionState.idle);
+						m_state = ConnectionState.readyForQuery;
+						break wait;
+
+					case 'N': // NoticeResponse
+						handleNoticeResponse(msgLength);
+						break;
+
+					default: // unexpected message
+						m_state = ConnectionState.invalid;
+						assert(0); // TODO: handle this in a better way
+				}
+			}
+		}
+
 		throw new ErrorResponseException();
 	}
 

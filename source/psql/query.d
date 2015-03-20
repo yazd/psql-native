@@ -3,7 +3,8 @@ module psql.query;
 import
 	psql.oid,
 	psql.common,
-	psql.connection;
+	psql.connection,
+	psql.exceptions;
 
 debug import
 	std.stdio;
@@ -31,8 +32,7 @@ struct SimpleQuery
 	 *
 	 * Params:
 	 *	 consumeAll = if `consumeAll` is false, all data from the query must
-	 *								already be consumed and all command completion messages
-	 *								be received.
+	 *								already be consumed.
 	 *                If `consumeAll` is true, all data left will be consumed
 	 *								until the connection can be put back in a state where
 	 *								it can send new queries.
@@ -58,6 +58,9 @@ struct SimpleQuery
 					switch (response)
 					{
 						case 'C': // CommandComplete
+							skipRecv(msgLength - u32size);
+							break;
+
 						case 'D': // DataRow
 						case 'I': // EmptyQueryMessage
 						case 'T': // RowDescription
@@ -73,18 +76,19 @@ struct SimpleQuery
 
 						case 'E': // ErrorResponse
 							handleErrorResponse(msgLength);
-							break wait;
+							break;
+
+						case 'N': // NoticeResponse
+							handleNoticeResponse(msgLength);
+							break;
 
 						case 'Z': // ReadyForQuery
 							handleReadyForQuery(msgLength);
 							m_done = true;
 							break wait;
 
-						case 'N': // NoticeResponse
-							handleNoticeResponse(msgLength);
-							break;
-
 						default:
+							debug writeln("Unhandled message: ", response);
 							skipRecv(msgLength - u32size);
 							throw new UnhandledMessageException();
 					}
@@ -215,6 +219,7 @@ struct SimpleQuery
 	 */
 	auto rows()
 	{
+		nextCommand();
 		return RowRange!Row(m_connection);
 	}
 
@@ -226,6 +231,7 @@ struct SimpleQuery
 	 */
 	auto fill(RowType)()
 	{
+		nextCommand();
 		return RowRange!RowType(m_connection, m_fields);
 	}
 
