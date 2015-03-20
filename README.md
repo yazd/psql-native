@@ -1,3 +1,4 @@
+[![Stories in Ready](https://badge.waffle.io/yazd/psql-native.png?label=ready&title=Ready)](https://waffle.io/yazd/psql-native)
 ## psql-native
 
 This library is an implementation of the postgres client protocol version 3.0, whose support started from PostgreSQL 7.4 and later.
