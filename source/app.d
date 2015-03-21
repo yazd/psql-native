@@ -104,6 +104,20 @@ void testHandleError(Connection conn)
 	testGenericRowSelect(conn);
 }
 
+void testPreparedStatement(Connection conn)
+{
+	writeln("QUERY: ", "SELECT * FROM tbl_people");
+
+	auto stmt = conn.prepare("get_all_people", "SELECT * FROM tbl_people");
+	stmt.bind();
+	stmt.execute();
+
+	foreach (row; stmt.rows())
+	{
+		//writeln(field.name, ": ", cast(char[]) row.columns[i]);
+	}
+}
+
 struct Person
 {
 	int id;

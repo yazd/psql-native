@@ -3,7 +3,8 @@ module psql.connection;
 import
 	psql.common,
 	psql.exceptions,
-	psql.query;
+	psql.query,
+	psql.prepared_statement;
 
 import
 	vibe.core.net;
@@ -161,6 +162,18 @@ final class Connection
 		SimpleQuery q = SimpleQuery(this);
 		q.sendCommand(command);
 		return q;
+	}
+
+	/**
+	 * Prepares a statement.
+	 */
+	PreparedStatement prepare(string name, const(char[]) statement)
+	{
+		assert(m_state == ConnectionState.readyForQuery);
+
+		PreparedStatement s = PreparedStatement(this, name);
+		s.prepare(statement);
+		return s;
 	}
 
 	/**
