@@ -154,13 +154,122 @@ final class Connection
 	/**
 	 * Sends a SQL command to the server. Multiple commands separated by semicolons can also be sent.
 	 */
-	SimpleQuery query(const(char[]) command)
+	SimpleQueryResult query(const(char[]) command)
 	{
 		assert(m_state == ConnectionState.readyForQuery);
 
-		SimpleQuery q = SimpleQuery(this);
-		q.sendCommand(command);
-		return q;
+		auto result = SimpleQueryResult(this);
+		result.sendCommand(command);
+		return result;
+	}
+
+	/**
+	 * Prepares a SQL statement
+	 */
+	void prepare(const(char[]) statementName, const(char[]) statement)
+	{
+		assert(m_state == ConnectionState.readyForQuery);
+		m_state = ConnectionState.inQuery;
+
+		// request
+		{
+			immutable u32 msgLength = cast(u32) (
+				u32.sizeof +
+				statementName.length + 1 +
+				statement.length + 1 +
+				u16.sizeof
+			);
+
+			with (m_connection)
+			{
+				send!ubyte('P'); // parse
+				send(msgLength);
+				sendz(statementName);
+				sendz(statement);
+				send!i16(0); // not going to prespecify types (at least for now)
+				flush();
+			}
+		}
+
+		sync();
+
+		// response
+		{
+			with (m_connection)
+			{
+				char response;
+				u32 msgLength;
+
+				wait:
+				while (true)
+				{
+					// wait for ParseComplete message or error
+					response = recv!ubyte();
+					msgLength = recv!u32();
+
+					switch (response)
+					{
+						case '1': // ParseComplete
+							skipRecv(msgLength - u32size);
+							break;
+
+						case 'Z': // ReadyForQuery
+							handleReadyForQuery(msgLength);
+							break wait;
+
+						case 'I': // EmptyQueryMessage
+							assert(msgLength == 4);
+							throw new EmptyQueryMessageException();
+
+						case 'E': // ErrorResponse
+							handleErrorResponse(msgLength);
+							break wait;
+
+						case 'N': // NoticeResponse
+							handleNoticeResponse(msgLength);
+							break;
+
+						default:
+							skipRecv(msgLength - u32size);
+							throw new UnhandledMessageException();
+					}
+				}
+			}
+		}
+	}
+
+	/**
+	 * Executes a prepared statement.
+	 */
+	PreparedQueryResult execute(Args...)(string statementName, Args args)
+	{
+		PreparedQueryResult result = PreparedQueryResult(this);
+		result.sendBind(statementName, "", args);
+		result.sendDescribe(statementName);
+		result.sendExecute("");
+		sync();
+		return result;
+	}
+
+	/**
+	 * Syncs.
+	 */
+	package
+	void sync()
+	{
+		// request
+		{
+			immutable u32 msgLength = cast(u32) (
+				i32.sizeof
+			);
+
+			with (m_connection)
+			{
+				send!ubyte('S'); // sync
+				send(msgLength);
+				flush();
+			}
+		}
 	}
 
 	/**

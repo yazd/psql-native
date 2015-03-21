@@ -1,18 +1,22 @@
 module psql.query;
 
 import
-	psql.oid,
 	psql.common,
 	psql.connection,
-	psql.exceptions;
+	psql.exceptions,
+	psql.oid,
+	psql.rows;
 
 debug import
 	std.stdio;
 
+alias SimpleQueryResult = QueryResult!(true, FieldRepresentation.text);
+alias PreparedQueryResult = QueryResult!(false, FieldRepresentation.binary);
+
 /**
- * A SimpleQuery provides a way to do simple SQL commands without much setup.
+ * A QueryResult provides a way to do simple SQL commands without much setup.
  */
-struct SimpleQuery
+struct QueryResult(bool isSimple, FieldRepresentation representation)
 {
 	private
 	{
@@ -61,6 +65,12 @@ struct SimpleQuery
 							skipRecv(msgLength - u32size);
 							break;
 
+						static if (!isSimple)
+						{
+							case '2': // BindCompletion
+							goto case;
+						}
+
 						case 'D': // DataRow
 						case 'I': // EmptyQueryMessage
 						case 'T': // RowDescription
@@ -97,37 +107,169 @@ struct SimpleQuery
 		}
 	}
 
-	/**
-	 * Sends the SQL command/commands to the server.
-	 */
-	package
-	void sendCommand(const(char[]) command)
+	static if (isSimple)
 	{
-		assert(m_connection.m_state == ConnectionState.readyForQuery);
-		m_connection.m_state = ConnectionState.inQuery;
-
-		// request
+		/**
+		 * Sends the SQL command/commands to the server.
+		 */
+		package
+		void sendCommand(const(char[]) command)
 		{
-			immutable u32 msgLength = cast(u32) (
-				u32.sizeof +
-				command.length + 1
-			);
+			assert(m_connection.m_state == ConnectionState.readyForQuery);
+			m_connection.m_state = ConnectionState.inQuery;
 
-			with (m_connection)
+			// request
 			{
-				send!ubyte('Q'); // query
-				send(msgLength);
-				sendz(command);
-				flush();
+				immutable u32 msgLength = cast(u32) (
+					u32.sizeof +
+					command.length + 1
+				);
+
+				with (m_connection)
+				{
+					send!ubyte('Q'); // query
+					send(msgLength);
+					sendz(command);
+					flush();
+				}
+			}
+		}
+
+		/**
+		 * If multiple commands are sent, this function must be called
+		 * to separate handling of the commands.
+		 */
+		void nextCommand()
+		{
+			handleCommand();
+		}
+	}
+	else static if (!isSimple)
+	{
+		/**
+		 * Binds a prepared statement
+		 */
+		void sendBind(Args...)(string statementName, string portalName, Args args)
+		{
+			enum sendRep = FieldRepresentation.binary;
+			enum recvRep = representation;
+
+			// request
+			{
+				immutable dataSize = () {
+					u32 size = 0;
+					foreach (immutable i, ref arg; args)
+					{
+						immutable ds = getSize!(Args[i], sendRep)(arg);
+						if (ds > 0)
+						{
+							size += ds;
+						}
+					}
+					return size;
+				}();
+
+				immutable u32 msgLength = cast(u32) (
+					u32.sizeof +
+					portalName.length + 1 +
+					statementName.length + 1 +
+					u16.sizeof +
+					u16.sizeof * Args.length +
+					u16.sizeof +
+					i32.sizeof * Args.length +
+					dataSize +
+					u16.sizeof +
+					i16.sizeof
+				);
+
+				with (m_connection)
+				{
+					send!ubyte('B'); // bind
+					send(msgLength);
+					sendz(portalName);
+					sendz(statementName);
+					static if (Args.length == 0)
+					{
+						send!i16(0);
+					}
+					else
+					{
+						send!i16(1);
+						send!i16(sendRep);
+					}
+					send!i16(Args.length);
+				}
+
+				foreach (immutable i, ref arg; args)
+				{
+					toPostgres!(Args[i], sendRep)(m_connection, arg);
+				}
+
+				with (m_connection)
+				{
+					send!i16(1);
+					send!i16(recvRep);
+					flush();
+				}
+			}
+		}
+
+		/**
+		 * Sends the execute message
+		 */
+		void sendExecute(string portalName, int maximumNumberOfRows = 0)
+		{
+			// request
+			{
+				immutable u32 msgLength = cast(u32) (
+					i32.sizeof +
+					portalName.length + 1 +
+					i32.sizeof
+				);
+
+				with (m_connection)
+				{
+					send!ubyte('E'); // execute
+					send(msgLength);
+					sendz(portalName);
+					send!i32(maximumNumberOfRows);
+					flush();
+				}
+			}
+
+			m_connection.m_state = ConnectionState.inQuery;
+		}
+
+		/**
+		 * Sends the describe message
+		 */
+		void sendDescribe(string statementName)
+		{
+			// request
+			{
+				immutable u32 msgLength = cast(u32) (
+					i32.sizeof +
+					1 +
+					statementName.length + 1
+				);
+
+				with (m_connection)
+				{
+					send!ubyte('D'); // describe
+					send(msgLength);
+					send!ubyte('S');
+					sendz(statementName);
+					flush();
+				}
 			}
 		}
 	}
 
 	/**
-	 * If multiple commands are sent, this function must be called
-	 * to separate handling of the commands.
+	 * Handles the responses from the psql server.
 	 */
-	void nextCommand()
+	package
+	void handleCommand()
 	{
 		assert(m_connection.m_state == ConnectionState.inQuery);
 		m_fields = null;
@@ -151,9 +293,17 @@ struct SimpleQuery
 						skipRecv(msgLength - u32size);
 						break wait;
 
+					case 't': // ParameterDescription
+						skipRecv(msgLength - u32size);
+						break;
+
 					case 'T': // RowDescription
 						readRowDescription(msgLength);
 						break wait;
+
+					case '2': // BindComplete
+						skipRecv(msgLength - u32size);
+						break;
 
 					case 'D': // DataRow
 						skipRecv(msgLength - u32size);
@@ -219,8 +369,8 @@ struct SimpleQuery
 	 */
 	auto rows()
 	{
-		nextCommand();
-		return RowRange!Row(m_connection);
+		handleCommand();
+		return RowRange!(Row, representation)(m_connection);
 	}
 
 	/**
@@ -231,8 +381,8 @@ struct SimpleQuery
 	 */
 	auto fill(RowType)()
 	{
-		nextCommand();
-		return RowRange!RowType(m_connection, m_fields);
+		handleCommand();
+		return RowRange!(RowType, representation)(m_connection, m_fields);
 	}
 
 	/**
@@ -243,224 +393,4 @@ struct SimpleQuery
 	{
 		return m_fields;
 	}
-}
-
-/**
- * Field description
- */
-struct Field
-{
-	string name;
-	u32 tableObjectID;
-	u16 columnAttribute;
-	u32 typeObjectID;
-	i16 typeLength;
-	u32 typeModifier;
-	u16 representation;
-}
-
-/**
- * RowRange is an input range that provides the data returned from the server.
- */
-package
-struct RowRange(RowType)
-{
-	private
-	{
-		enum isGenericRow = is(RowType == psql.query.Row);
-
-		Connection m_connection;
-		bool m_empty = false;
-		RowType m_front;
-
-		static if (!isGenericRow)
-		{
-			ColumnMap!RowType[] m_mapping;
-		}
-	}
-
-	static if (isGenericRow)
-	{
-		/**
-		 * Constructs a `RowRange` from a connection and reads the first data row.
-		 */
-		package
-		this(Connection connection)
-		{
-			m_connection = connection;
-			popFront();
-		}
-	}
-	else
-	{
-		/**
-		 * Constructs a `RowRange` from a connection, builds field mapping and reads the first data row.
-		 */
-		package
-		this(Connection connection, const(Field[]) fields)
-		{
-			m_connection = connection;
-			buildMapping(fields);
-			popFront();
-		}
-	}
-
-	/**
-	 * Input range primitve `empty`.
-	 */
-	@property
-	bool empty()
-	{
-		return m_empty;
-	}
-
-	/**
-	 * Input range primitve `front`. Returns a `RowType`.
-	 */
-	const(RowType) front() const
-	{
-		assert(!m_empty);
-		return m_front;
-	}
-
-	/**
-	 * Input range primitve `popFront`.
-	 */
-	void popFront()
-	{
-		assert(m_connection.m_state == ConnectionState.inQuery);
-		assert(!m_empty);
-
-		with (m_connection)
-		{
-			char response;
-			u32 msgLength;
-
-			wait:
-			while (true)
-			{
-				// wait for DataRow/CommandComplete message or error
-				response = recv!ubyte();
-				msgLength = recv!u32();
-
-				switch (response)
-				{
-					case 'D': // DataRow
-						readDataRow(msgLength - u32size);
-						break wait;
-
-					case 'C': // CommandComplete
-						m_empty = true;
-						skipRecv(msgLength - u32size);
-						break wait;
-
-					case 'E': // ErrorResponse
-						m_empty = true;
-						handleErrorResponse(msgLength);
-						break wait;
-
-					case 'N': // NoticeResponse
-						handleNoticeResponse(msgLength);
-						break;
-
-					default:
-						debug writeln(response);
-						throw new UnhandledMessageException();
-				}
-			}
-		}
-	}
-
-	/**
-	 * Implementation of data row parsing.
-	 */
-	private
-	void readDataRow(u32 length)
-	{
-		assert(length >= u16size);
-		u16 nCols = m_connection.recv!u16();
-
-		m_front = RowType();
-		if (nCols == 0) return;
-
-		static if (isGenericRow)
-		{
-			m_front.columns = new Row.Column[nCols];
-			foreach (ref column; m_front.columns)
-			{
-				i32 size = m_connection.recv!i32();
-
-				if (size > 0)
-				{
-					column = new ubyte[size];
-					m_connection.recv(column);
-				}
-			}
-		}
-		else
-		{
-			foreach (columnIndex; 0 .. nCols)
-			{
-				i32 size = m_connection.recv!i32();
-
-				if (size > 0)
-				{
-					if (m_mapping[columnIndex].fill !is null)
-					{
-						m_mapping[columnIndex].fill(m_front, m_connection, size);
-					}
-					else
-					{
-						m_connection.skipRecv(size);
-					}
-				}
-			}
-		}
-	}
-
-	static if (!isGenericRow)
-	{
-		/**
-		 * Builds the mapping from the fields to `RowType`.
-		 */
-		private void buildMapping(const(Field[]) fields)
-		{
-			m_mapping = new ColumnMap!RowType[fields.length];
-			foreach (immutable i, const ref field; fields)
-			{
-				nameSwitch:
-				switch (field.name)
-				{
-					foreach (dataMemberName; getDataMembers!RowType)
-					{
-						case dataMemberName:
-							m_mapping[i].fill = getMapFunction!(RowType, dataMemberName, FieldRepresentation.text)();
-							break nameSwitch;
-					}
-
-					default:
-						m_mapping[i].fill = null;
-				}
-			}
-		}
-	}
-}
-
-/**
- * Generic row.
- * It is a list of columns.
- */
-struct Row
-{
-	alias Column = ubyte[];
-	Column[] columns;
-}
-
-/**
- * Mapping used to read from connection and fill `RowType` directly.
- */
-private
-struct ColumnMap(RowType)
-{
-	void function(ref RowType row, Connection connection, u32 size) fill;
 }

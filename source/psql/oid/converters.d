@@ -2,7 +2,8 @@ module psql.oid.converters;
 
 import
 	psql.oid,
-	psql.common;
+	psql.common,
+	psql.connection;
 
 /**
  * List of standard postgres oids.
@@ -72,4 +73,13 @@ struct Int4
 struct Text
 {
 	string value;
+
+	static void fromBinaryRep(Connection connection, i32 size, ref string field)
+	{
+		import std.exception;
+
+		ubyte[] buffer = new ubyte[size];
+		connection.recv(buffer);
+		field = cast(string) buffer;
+	}
 }

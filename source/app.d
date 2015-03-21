@@ -13,6 +13,7 @@ void main()
 	testTwoCommandsQuery(conn);
 	testTypedRowSelect(conn);
 	testHandleError(conn);
+	testPreparedStatement(conn);
 }
 
 void testGenericRowSelect(Connection conn)
@@ -102,6 +103,22 @@ void testHandleError(Connection conn)
 	}());
 
 	testGenericRowSelect(conn);
+}
+
+void testPreparedStatement(Connection conn)
+{
+	writeln("QUERY: ", "SELECT * FROM tbl_people");
+
+	conn.prepare("get_all_people", "SELECT * FROM tbl_people WHERE name = $1");
+	auto result = conn.execute("get_all_people", "Yazan Dabain");
+	foreach (person; result.fill!Person())
+	{
+		writeln(person);
+	}
+
+	result.close();
+
+	writeln();
 }
 
 struct Person
