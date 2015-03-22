@@ -172,7 +172,7 @@ template fromBinaryRep(OidConverter) if (hasUDA!(OidConverter, Oid))
 		void fromBinaryRep(Connection connection, i32 size, ref FieldType field)
 		{
 			assert(size == FieldType.sizeof);
-			ubyte[FieldType.sizeof] fieldBytes = (cast(ubyte*) field.ptr)[0 .. FieldType.sizeof];
+			ubyte[FieldType.sizeof] fieldBytes = (cast(ubyte*) &field)[0 .. FieldType.sizeof];
 			connection.recv(fieldBytes);
 
 			import std.bitmanip;
@@ -268,6 +268,31 @@ i32 getSize(DataType, FieldRepresentation representation)(DataType value)
 	}
 }
 
+void toPostgres(DataType, FieldRepresentation representation)(Connection connection, DataType value)
+{
+	alias OidConverter = getOidConverter!DataType;
+
+	static if (!is(OidConverter))
+	{
+		static assert(0, "unimplemented converter for " ~ DataType.stringof);
+	}
+
+	static if (representation == FieldRepresentation.text)
+	{
+		alias conversionFunction = toTextRep!OidConverter;
+	}
+	else static if (representation == FieldRepresentation.binary)
+	{
+		alias conversionFunction = toBinaryRep!OidConverter;
+	}
+	else
+	{
+		static assert(0, "unimplemented representation");
+	}
+
+	conversionFunction(connection, value);
+}
+
 /**
  * Constructs a function to map a data row directly into a type `RowType`.
  */
@@ -310,29 +335,10 @@ void function(ref RowType row, Connection connection, u32 size) getMapFunction(R
 	}
 	else static if (representation == FieldRepresentation.binary)
 	{
-		assert(0, "unimplemented binary representation");
 		static void func(ref RowType row, Connection connection, u32 size)
 		{
-			i32 size = connection.recv!i32();
-
-			// TODO: double check memory allocation
-			if (size > 0)
-			{
-				ubyte[] buffer;
-				if (size <= stackBuffer)
-				{
-					buffer = stackBuffer[0 .. size];
-					m_connection.recv(buffer);
-					__traits(getMember, row, MemberName) = fromTextRep!OidConverter((cast(char[]) buffer));
-				}
-				else
-				{
-					buffer = new ubyte[size];
-					m_connection.recv(buffer);
-					__traits(getMember, row, MemberName) = fromTextRep!OidConverter((cast(char[]) buffer));
-					destroy(buffer);
-				}
-			}
+			alias func = fromBinaryRep!OidConverter;
+			func(connection, size, __traits(getMember, row, MemberName));
 		}
 		return &func;
 	}
