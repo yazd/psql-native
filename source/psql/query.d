@@ -10,13 +10,13 @@ import
 debug import
 	std.stdio;
 
-alias SimpleQueryResult = QueryResult!true;
-alias PreparedQueryResult = QueryResult!false;
+alias SimpleQueryResult = QueryResult!(true, FieldRepresentation.text);
+alias PreparedQueryResult = QueryResult!(false, FieldRepresentation.binary);
 
 /**
  * A QueryResult provides a way to do simple SQL commands without much setup.
  */
-struct QueryResult(bool isSimple)
+struct QueryResult(bool isSimple, FieldRepresentation representation)
 {
 	private
 	{
@@ -152,7 +152,7 @@ struct QueryResult(bool isSimple)
 		void sendBind(Args...)(string statementName, string portalName, Args args)
 		{
 			enum sendRep = FieldRepresentation.binary;
-			enum recvRep = FieldRepresentation.text;
+			enum recvRep = representation;
 
 			// request
 			{
@@ -370,7 +370,7 @@ struct QueryResult(bool isSimple)
 	auto rows()
 	{
 		handleCommand();
-		return RowRange!Row(m_connection);
+		return RowRange!(Row, representation)(m_connection);
 	}
 
 	/**
@@ -382,7 +382,7 @@ struct QueryResult(bool isSimple)
 	auto fill(RowType)()
 	{
 		handleCommand();
-		return RowRange!RowType(m_connection, m_fields);
+		return RowRange!(RowType, representation)(m_connection, m_fields);
 	}
 
 	/**

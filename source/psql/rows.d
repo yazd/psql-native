@@ -26,7 +26,7 @@ struct Field
  * RowRange is an input range that provides the data returned from the server.
  */
 package
-struct RowRange(RowType)
+struct RowRange(RowType, FieldRepresentation representation)
 {
 	private
 	{
@@ -197,7 +197,7 @@ struct RowRange(RowType)
 					foreach (dataMemberName; getDataMembers!RowType)
 					{
 						case dataMemberName:
-							m_mapping[i].fill = getMapFunction!(RowType, dataMemberName, FieldRepresentation.text)();
+							m_mapping[i].fill = getMapFunction!(RowType, dataMemberName, representation)();
 							break nameSwitch;
 					}
 
