@@ -96,11 +96,15 @@ void testHandleError(Connection conn)
 {
 	writeln("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 
-	assertThrown!ErrorResponseException(() {
+	auto exception = collectException!ErrorResponseException(() {
 		// unique constraint problem
 		auto query = conn.query("INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 		query.close();
 	}());
+
+	assert(exception);
+	assert(exception.message.length > 0);
+	assert(exception.detail.length > 0);
 
 	testGenericRowSelect(conn);
 }

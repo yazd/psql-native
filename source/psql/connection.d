@@ -304,7 +304,34 @@ final class Connection
 	void handleErrorResponse(u32 length)
 	{
 		m_state = ConnectionState.invalid;
-		skipRecv(length - u32size);
+
+		string message, detail, hint;
+		{
+			u32 sizeLeft = length - u32size;
+			while (sizeLeft > 0)
+			{
+				char type = recv!ubyte();
+				sizeLeft -= 1;
+
+				switch (type)
+				{
+					case 'M':
+						message = recv!string(sizeLeft);
+						break;
+
+					case 'D':
+						detail = recv!string(sizeLeft);
+						break;
+
+					case 'H':
+						hint = recv!string(sizeLeft);
+						break;
+
+					default:
+						skipString(sizeLeft);
+				}
+			}
+		}
 
 		{
 			// cleanup error state
@@ -334,7 +361,7 @@ final class Connection
 			}
 		}
 
-		throw new ErrorResponseException();
+		throw new ErrorResponseException(message, detail, hint);
 	}
 
 	/**
@@ -431,6 +458,31 @@ final class Connection
 		}
 
 		return null;
+	}
+
+	/**
+	 * Skips data upto and including a zero byte changing `length`.
+	 */
+	package
+	void skipString(ref u32 length)
+	{
+		import std.algorithm : countUntil;
+
+		// reads until \0 byte
+		while (m_connection.dataAvailableForRead())
+		{
+			const(ubyte[]) availableData = m_connection.peek();
+
+			auto strLength = availableData.countUntil('\0');
+			if (strLength >= 0)
+			{
+				skipRecv(cast(u32) (strLength + 1));
+				length -= strLength + 1;
+				return;
+			}
+		}
+
+		return;
 	}
 
 	/**
