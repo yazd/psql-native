@@ -327,6 +327,9 @@ final class Connection
 						hint = recv!string(sizeLeft);
 						break;
 
+					case '\0':
+						break;
+
 					default:
 						skipString(sizeLeft);
 				}
@@ -467,6 +470,7 @@ final class Connection
 	void skipString(ref u32 length)
 	{
 		import std.algorithm : countUntil;
+		assert(length > 0, "length must be > 0");
 
 		// reads until \0 byte
 		while (m_connection.dataAvailableForRead())
