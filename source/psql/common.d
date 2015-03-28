@@ -20,7 +20,19 @@ enum u32size = cast(u32) u32.sizeof;
 
 alias getUDAs(T) = TypeTuple!(__traits(getAttributes, T));
 
-template choose(UDA, UDAs...)
+template matches(alias TypeA, alias TypeB)
+{
+	static if (is(TypeA : TypeB!TA, TA...)) // TypeB is a template
+	{
+		enum matches = true;
+	}
+	else
+	{
+		enum matches = is(TypeA : TypeB);
+	}
+}
+
+template choose(alias UDA, UDAs...)
 {
 	static if (UDAs.length == 0)
 	{
@@ -28,11 +40,11 @@ template choose(UDA, UDAs...)
 	}
 	else
 	{
-		static if (is(UDAs[0] : UDA))
+		static if (matches!(UDAs[0], UDA))
 		{
 			enum choose = UDAs[0].init;
 		}
-		else static if (is(typeof(UDAs[0]) : UDA))
+		else static if (matches!(typeof(UDAs[0]), UDA))
 		{
 			enum choose = UDAs[0];
 		}
@@ -43,7 +55,7 @@ template choose(UDA, UDAs...)
 	}
 }
 
-enum hasUDA(T, UDA) = is(typeof(choose!(UDA, getUDAs!T)));
+enum hasUDA(T, alias UDA) = is(typeof(choose!(UDA, getUDAs!T)));
 enum hasMember(T, string memberName) = is(typeof(__traits(getMember, T, memberName)));
 
 // meta programming

@@ -24,14 +24,18 @@ enum FieldRepresentation : u16
  *
  * Contains oid number and data type size.
  */
-struct Oid { u32 number; i16 length; }
+struct Oid(NativeType)
+{
+	alias Type = NativeType;
+	u32 number;
+}
 
 /**
- * Returns whether the `Thing` is considered an oid.
+ * Returns whether the `Thing` is considered an oid converter.
  */
 template isOidConverter(alias Thing)
 {
-	static if (!is(Thing == struct) && !is(Thing == class))
+	static if ((!is(Thing == struct) && !is(Thing == class)) || is(Thing == InvalidConverter))
 	{
 		enum isOidConverter = false;
 	}
@@ -40,6 +44,11 @@ template isOidConverter(alias Thing)
 		enum isOidConverter = hasUDA!(Thing, Oid);
 	}
 }
+
+/**
+ * Returns the `Oid` attached to `Thing`.
+ */
+enum getOid(alias Thing) = choose!(Oid, getUDAs!Thing);
 
 /**
  * Alias to all OidConverters names as a TypeTuple.
@@ -73,14 +82,16 @@ template getOidConverter(DataType)
 	{
 		static if (Converters.length == 0)
 		{
-			alias filterFirstMatch = TypeTuple!();
+			alias filterFirstMatch = InvalidConverter;
 		}
 		else
 		{
 			alias OidConverter = TypeTuple!(__traits(getMember, psql.oid.converters, Converters[0]));
-			static if (is(OidConverterType!OidConverter == DataType))
+			enum oid = getOid!OidConverter;
+
+			static if (isOidConverter!OidConverter && is(oid.Type == DataType))
 			{
-				alias filterFirstMatch = OidConverter;
+				alias filterFirstMatch = OidConverter[0];
 			}
 			else
 			{
@@ -93,174 +104,23 @@ template getOidConverter(DataType)
 }
 
 /**
- * Returns the native type that the oid converts to.
- */
-alias OidConverterType(OidType) = typeof(__traits(getMember, OidType, "value"));
-
-/**
- * Default implementation of a field's text representation conversion to native data type.
- */
-template fromTextRep(OidConverter) if (hasUDA!(OidConverter, Oid))
-{
-	static if (hasMember!(OidConverter, "fromTextRep"))
-	{
-		alias fromTextRep = OidConverter.fromTextRep;
-	}
-	else
-	{
-		OidConverterType!OidConverter fromTextRep(const(char[]) text)
-		{
-			import std.conv : to;
-			return text.to!(OidConverterType!OidConverter);
-		}
-	}
-}
-
-/**
- * Default implementation of a field's text representation conversion to psql data type.
- */
-template toTextRep(OidConverter) if (hasUDA!(OidConverter, Oid))
-{
-	static if (hasMember!(OidConverter, "toTextRep"))
-	{
-		alias toTextRep = OidConverter.toTextRep;
-	}
-	else
-	{
-		alias DataType = OidConverterType!OidConverter;
-		void toTextRep(Connection connection, DataType value)
-		{
-			import std.conv : to;
-			string str = value.to!string;
-			connection.send(str.length);
-			connection.send(str);
-		}
-	}
-}
-
-/**
- * Default implementation of a field's text representation conversion to psql size.
- */
-template toTextRepSize(OidConverter) if (hasUDA!(OidConverter, Oid))
-{
-	static if (hasMember!(OidConverter, "toTextRepSize"))
-	{
-		alias toTextRepSize = OidConverter.toTextRepSize;
-	}
-	else
-	{
-		i32 toTextRepSize(OidConverterType!OidConverter value)
-		{
-			import std.conv : to;
-			return cast(i32) (value.to!(char[]).length);
-		}
-	}
-}
-
-/**
- * Default implementation of a field's binary representation conversion to native data type.
- */
-template fromBinaryRep(OidConverter) if (hasUDA!(OidConverter, Oid))
-{
-	static if (hasMember!(OidConverter, "fromBinaryRep"))
-	{
-		alias fromBinaryRep = OidConverter.fromBinaryRep;
-	}
-	else
-	{
-		alias FieldType = OidConverterType!OidConverter;
-		void fromBinaryRep(Connection connection, i32 size, ref FieldType field)
-		{
-			assert(size == FieldType.sizeof);
-			ubyte[FieldType.sizeof] fieldBytes = (cast(ubyte*) &field)[0 .. FieldType.sizeof];
-			connection.recv(fieldBytes);
-
-			import std.bitmanip;
-			field = bigEndianToNative!FieldType(fieldBytes);
-		}
-	}
-}
-
-/**
- * Default implementation of a field's binary representation conversion to psql data type.
- */
-template toBinaryRep(OidConverter) if (hasUDA!(OidConverter, Oid))
-{
-	static if (hasMember!(OidConverter, "toBinaryRep"))
-	{
-		alias toBinaryRep = OidConverter.toBinaryRep;
-	}
-	else
-	{
-		alias DataType = OidConverterType!OidConverter;
-		static if (is(DataType : U[], U))
-		{
-			void toBinaryRep(Connection connection, DataType value)
-			{
-				connection.send!i32(getSize!(DataType, FieldRepresentation.binary)(value));
-				connection.send!DataType(value);
-			}
-		}
-		else
-		{
-			void toBinaryRep(Connection connection, DataType value)
-			{
-				connection.send!i32(getSize!(DataType, FieldRepresentation.binary)(value));
-				connection.send!DataType(value);
-			}
-		}
-	}
-}
-
-/**
- * Default implementation of a field's binary representation conversion to psql size.
- */
-template toBinaryRepSize(OidConverter) if (hasUDA!(OidConverter, Oid))
-{
-	static if (hasMember!(OidConverter, "toBinaryRepSize"))
-	{
-		alias toBinaryRepSize = OidConverter.toBinaryRepSize;
-	}
-	else
-	{
-		alias DataType = OidConverterType!OidConverter;
-		static if (is(DataType : U[], U))
-		{
-			i32 toBinaryRepSize(DataType value)
-			{
-				alias ElementType = typeof(value[0]);
-				return cast(i32) (value.length * ElementType.sizeof);
-			}
-		}
-		else
-		{
-			i32 toBinaryRepSize(DataType value)
-			{
-				return DataType.sizeof;
-			}
-		}
-	}
-}
-
-/**
  * Returns the number of bytes required to send the passed-in argument in the representation provided.
  */
 i32 getSize(DataType, FieldRepresentation representation)(DataType value)
 {
 	alias OidConverter = getOidConverter!DataType;
 
-	static if (!is(OidConverter))
+	static if (!isOidConverter!OidConverter)
 	{
 		static assert(0, "unimplemented converter for " ~ DataType.stringof);
 	}
-
-	static if (representation == FieldRepresentation.text)
+	else static if (representation == FieldRepresentation.text)
 	{
-		return toTextRepSize!OidConverter(value);
+		return OidConverter.toTextSize(value);
 	}
 	else static if (representation == FieldRepresentation.binary)
 	{
-		return toBinaryRepSize!OidConverter(value);
+		return OidConverter.toBinarySize(value);
 	}
 	else
 	{
@@ -272,18 +132,17 @@ void toPostgres(DataType, FieldRepresentation representation)(Connection connect
 {
 	alias OidConverter = getOidConverter!DataType;
 
-	static if (!is(OidConverter))
+	static if (!isOidConverter!OidConverter)
 	{
 		static assert(0, "unimplemented converter for " ~ DataType.stringof);
 	}
-
-	static if (representation == FieldRepresentation.text)
+	else static if (representation == FieldRepresentation.text)
 	{
-		alias conversionFunction = toTextRep!OidConverter;
+		alias conversionFunction = OidConverter.toText;
 	}
 	else static if (representation == FieldRepresentation.binary)
 	{
-		alias conversionFunction = toBinaryRep!OidConverter;
+		alias conversionFunction = OidConverter.toBinary;
 	}
 	else
 	{
@@ -320,13 +179,13 @@ void function(ref RowType row, Connection connection, u32 size) getMapFunction(R
 				{
 					buffer = stackBuffer[0 .. size];
 					connection.recv(buffer);
-					__traits(getMember, row, MemberName) = fromTextRep!OidConverter((cast(char[]) buffer));
+					__traits(getMember, row, MemberName) = OidConverter.fromText((cast(char[]) buffer));
 				}
 				else
 				{
 					buffer = new ubyte[size];
 					connection.recv(buffer);
-					__traits(getMember, row, MemberName) = fromTextRep!OidConverter((cast(char[]) buffer));
+					__traits(getMember, row, MemberName) = OidConverter.fromText((cast(char[]) buffer));
 					destroy(buffer);
 				}
 			}
@@ -337,7 +196,7 @@ void function(ref RowType row, Connection connection, u32 size) getMapFunction(R
 	{
 		static void func(ref RowType row, Connection connection, u32 size)
 		{
-			alias func = fromBinaryRep!OidConverter;
+			alias func = OidConverter.fromBinary;
 			func(connection, size, __traits(getMember, row, MemberName));
 		}
 		return &func;

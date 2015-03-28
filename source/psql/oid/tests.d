@@ -5,5 +5,7 @@ import
 
 static assert(getSize!(int, FieldRepresentation.binary)(0) == int.sizeof);
 static assert(getSize!(int, FieldRepresentation.text)(0) == 1);
+static assert(getSize!(char[], FieldRepresentation.text)("hello".dup) == 5);
+static assert(getSize!(char[], FieldRepresentation.binary)("hello".dup) == 5);
 static assert(getSize!(string, FieldRepresentation.text)("hello") == 5);
 static assert(getSize!(string, FieldRepresentation.binary)("hello") == 5);
