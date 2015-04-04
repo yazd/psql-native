@@ -4,6 +4,7 @@ import
 	psql.common,
 	psql.connection,
 	psql.exceptions,
+	psql.messages,
 	psql.oid,
 	psql.rows;
 
@@ -61,19 +62,19 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 
 					switch (response)
 					{
-						case 'C': // CommandComplete
+						case Backend.commandComplete:
 							skipRecv(msgLength - u32size);
 							break;
 
 						static if (!isSimple)
 						{
-							case '2': // BindCompletion
+							case Backend.bindComplete:
 							goto case;
 						}
 
-						case 'D': // DataRow
-						case 'I': // EmptyQueryMessage
-						case 'T': // RowDescription
+						case Backend.dataRow:
+						case Backend.emptyQueryResponse:
+						case Backend.rowDescription:
 							if (consumeAll)
 							{
 								skipRecv(msgLength - u32size);
@@ -84,15 +85,15 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 								goto default;
 							}
 
-						case 'E': // ErrorResponse
+						case Backend.errorResponse:
 							handleErrorResponse(msgLength);
 							break;
 
-						case 'N': // NoticeResponse
+						case Backend.noticeResponse:
 							handleNoticeResponse(msgLength);
 							break;
 
-						case 'Z': // ReadyForQuery
+						case Backend.readyForQuery:
 							handleReadyForQuery(msgLength);
 							m_done = true;
 							break wait;
@@ -127,7 +128,7 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 
 				with (m_connection)
 				{
-					send!ubyte('Q'); // query
+					send!ubyte(Frontend.query);
 					send(msgLength);
 					sendz(command);
 					flush();
@@ -184,7 +185,7 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 
 				with (m_connection)
 				{
-					send!ubyte('B'); // bind
+					send!ubyte(Frontend.bind);
 					send(msgLength);
 					sendz(portalName);
 					sendz(statementName);
@@ -229,7 +230,7 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 
 				with (m_connection)
 				{
-					send!ubyte('E'); // execute
+					send!ubyte(Frontend.execute);
 					send(msgLength);
 					sendz(portalName);
 					send!i32(maximumNumberOfRows);
@@ -255,9 +256,9 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 
 				with (m_connection)
 				{
-					send!ubyte('D'); // describe
+					send!ubyte(Frontend.describe);
 					send(msgLength);
-					send!ubyte('S');
+					send!ubyte('S'); // 'S' for prepared statement, 'P' for portal
 					sendz(statementName);
 					flush();
 				}
@@ -289,40 +290,40 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 
 				switch (response)
 				{
-					case 'C': // CommandComplete
+					case Backend.commandComplete:
 						skipRecv(msgLength - u32size);
 						break wait;
 
-					case 't': // ParameterDescription
+					case Backend.parameterDescription:
 						skipRecv(msgLength - u32size);
 						break;
 
-					case 'T': // RowDescription
+					case Backend.rowDescription:
 						readRowDescription(msgLength);
 						break wait;
 
-					case '2': // BindComplete
+					case Backend.bindComplete:
 						skipRecv(msgLength - u32size);
 						break;
 
-					case 'D': // DataRow
+					case Backend.dataRow:
 						skipRecv(msgLength - u32size);
 						throw new UnexpectedMessageException();
 
-					case 'I': // EmptyQueryMessage
+					case Backend.emptyQueryResponse:
 						assert(msgLength == 4);
 						throw new EmptyQueryMessageException();
 
-					case 'E': // ErrorResponse
+					case Backend.errorResponse:
 						handleErrorResponse(msgLength);
 						break wait;
 
-					case 'Z': // ReadyForQuery
+					case Backend.readyForQuery:
 						throw new UnexpectedMessageException();
 						//handleReadyForQuery(msgLength);
 						//break wait;
 
-					case 'N': // NoticeResponse
+					case Backend.noticeResponse:
 						handleNoticeResponse(msgLength);
 						break;
 

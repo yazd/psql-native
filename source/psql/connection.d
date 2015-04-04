@@ -3,6 +3,7 @@ module psql.connection;
 import
 	psql.common,
 	psql.exceptions,
+	psql.messages,
 	psql.query;
 
 import
@@ -100,7 +101,11 @@ final class Connection
 			char response = recv!ubyte();
 			u32 msgLength = recv!u32();
 
-			enforce(response == 'R', "protocol error");
+			if (response != Backend.authenticationRequest)
+			{
+				throw new UnexpectedMessageException();
+			}
+
 			u32 auth = recv!u32();
 			enforce(auth == 0, "authentication failure");
 			m_state = ConnectionState.authenticated;
@@ -123,24 +128,24 @@ final class Connection
 
 			switch (response)
 			{
-				case 'K': // BackendKeyData
+				case Backend.backendKeyData:
 					skipRecv(msgLength - u32size);
 					break;
 
-				case 'S': // ParameterStatus
+				case Backend.parameterStatus:
 					skipRecv(msgLength - u32size);
 					break;
 
-				case 'Z': // ReadyForQuery
+				case Backend.readyForQuery:
 					auto transactionStatus = handleReadyForQuery(msgLength);
 					assert(transactionStatus == TransactionState.idle);
 					break wait;
 
-				case 'E': // ErrorResponse
+				case Backend.errorResponse:
 					handleErrorResponse(msgLength);
 					throw new Exception("error response received");
 
-				case 'N': // NoticeResponse
+				case Backend.noticeResponse:
 					handleNoticeResponse(msgLength);
 					break;
 
@@ -182,7 +187,7 @@ final class Connection
 
 			with (m_connection)
 			{
-				send!ubyte('P'); // parse
+				send!ubyte(Frontend.parse);
 				send(msgLength);
 				sendz(statementName);
 				sendz(statement);
@@ -209,23 +214,23 @@ final class Connection
 
 					switch (response)
 					{
-						case '1': // ParseComplete
+						case Backend.parseComplete:
 							skipRecv(msgLength - u32size);
 							break;
 
-						case 'Z': // ReadyForQuery
+						case Backend.readyForQuery:
 							handleReadyForQuery(msgLength);
 							break wait;
 
-						case 'I': // EmptyQueryMessage
+						case Backend.emptyQueryResponse:
 							assert(msgLength == 4);
 							throw new EmptyQueryMessageException();
 
-						case 'E': // ErrorResponse
+						case Backend.errorResponse:
 							handleErrorResponse(msgLength);
 							break wait;
 
-						case 'N': // NoticeResponse
+						case Backend.noticeResponse:
 							handleNoticeResponse(msgLength);
 							break;
 
@@ -265,7 +270,7 @@ final class Connection
 
 			with (m_connection)
 			{
-				send!ubyte('S'); // sync
+				send!ubyte(Frontend.sync);
 				send(msgLength);
 				flush();
 			}
@@ -315,15 +320,15 @@ final class Connection
 
 				switch (type)
 				{
-					case 'M':
+					case 'M': // message
 						message = recv!string(sizeLeft);
 						break;
 
-					case 'D':
+					case 'D': // detail
 						detail = recv!string(sizeLeft);
 						break;
 
-					case 'H':
+					case 'H': // hint
 						hint = recv!string(sizeLeft);
 						break;
 
@@ -347,13 +352,13 @@ final class Connection
 
 				switch (response)
 				{
-					case 'Z': // ReadyForQuery
+					case Backend.readyForQuery:
 						auto transactionStatus = handleReadyForQuery(msgLength);
 						assert(transactionStatus == TransactionState.idle);
 						m_state = ConnectionState.readyForQuery;
 						break wait;
 
-					case 'N': // NoticeResponse
+					case Backend.noticeResponse:
 						handleNoticeResponse(msgLength);
 						break;
 

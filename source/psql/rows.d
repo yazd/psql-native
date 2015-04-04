@@ -6,7 +6,8 @@ import
 	psql.oid,
 	psql.common,
 	psql.connection,
-	psql.exceptions;
+	psql.exceptions,
+	psql.messages;
 
 /**
  * Field description
@@ -108,21 +109,21 @@ struct RowRange(RowType, FieldRepresentation representation)
 
 				switch (response)
 				{
-					case 'D': // DataRow
+					case Backend.dataRow:
 						readDataRow(msgLength - u32size);
 						break wait;
 
-					case 'C': // CommandComplete
+					case Backend.commandComplete:
 						m_empty = true;
 						skipRecv(msgLength - u32size);
 						break wait;
 
-					case 'E': // ErrorResponse
+					case Backend.errorResponse:
 						m_empty = true;
 						handleErrorResponse(msgLength);
 						break wait;
 
-					case 'N': // NoticeResponse
+					case Backend.noticeResponse:
 						handleNoticeResponse(msgLength);
 						break;
 
