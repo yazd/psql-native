@@ -1,6 +1,15 @@
-import std.stdio;
 import std.exception;
+import std.stdio;
 import psql;
+
+debug(DoLog)
+{
+	alias log = writeln;
+}
+else
+{
+	void log(Args...)(Args args) {}
+}
 
 void main()
 {
@@ -18,31 +27,31 @@ void main()
 
 void testGenericRowSelect(Connection conn)
 {
-	writeln("QUERY: ", "SELECT * FROM tbl_people");
+	log("QUERY: ", "SELECT * FROM tbl_people");
 	auto query = conn.query("SELECT * FROM tbl_people");
 
 	foreach (row; query.rows())
 	{
 		foreach (i, field; query.fields())
 		{
-			writeln(field.name, ": ", cast(char[]) row.columns[i]);
+			log(field.name, ": ", cast(char[]) row.columns[i]);
 		}
 	}
 
 	query.close();
-	writeln();
+	log();
 }
 
 void testTwoCommandsQuery(Connection conn)
 {
-	writeln("QUERY: ", "SELECT * FROM tbl_people; SELECT * FROM tbl_people");
+	log("QUERY: ", "SELECT * FROM tbl_people; SELECT * FROM tbl_people");
 	auto query = conn.query("SELECT * FROM tbl_people; SELECT * FROM tbl_people");
 
 	foreach (row; query.rows())
 	{
 		foreach (i, field; query.fields())
 		{
-			writeln(field.name, ": ", cast(char[]) row.columns[i]);
+			log(field.name, ": ", cast(char[]) row.columns[i]);
 		}
 	}
 
@@ -50,51 +59,51 @@ void testTwoCommandsQuery(Connection conn)
 	{
 		foreach (i, field; query.fields())
 		{
-			writeln(field.name, ": ", cast(char[]) row.columns[i]);
+			log(field.name, ": ", cast(char[]) row.columns[i]);
 		}
 	}
 
 	query.close();
-	writeln();
+	log();
 }
 
 void testTypedRowSelect(Connection conn)
 {
-	writeln("QUERY: ", "SELECT * FROM tbl_people");
+	log("QUERY: ", "SELECT * FROM tbl_people");
 	auto query = conn.query("SELECT * FROM tbl_people");
 
 	foreach (person; query.fill!Person())
 	{
-		writeln(person);
+		log(person);
 	}
 
 	query.close();
-	writeln();
+	log();
 }
 
 void testSimpleInsert(Connection conn)
 {
-	writeln("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
+	log("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 
 	auto query = conn.query("INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 	query.close();
 
-	writeln();
+	log();
 }
 
 void testSimpleDelete(Connection conn)
 {
-	writeln("QUERY: ", "DELETE FROM tbl_people WHERE name = 'test'");
+	log("QUERY: ", "DELETE FROM tbl_people WHERE name = 'test'");
 
 	auto query = conn.query("DELETE FROM tbl_people WHERE name = 'test'");
 	query.close();
 
-	writeln();
+	log();
 }
 
 void testHandleError(Connection conn)
 {
-	writeln("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
+	log("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 
 	auto exception = collectException!ErrorResponseException(() {
 		// unique constraint problem
@@ -111,18 +120,19 @@ void testHandleError(Connection conn)
 
 void testPreparedStatement(Connection conn)
 {
-	writeln("QUERY: ", "SELECT * FROM tbl_people");
+	log("QUERY: ", "SELECT * FROM tbl_people");
 
 	conn.prepare("get_all_people", "SELECT * FROM tbl_people WHERE name = $1");
+
 	auto result = conn.execute("get_all_people", "Yazan Dabain");
 	foreach (person; result.fill!Person())
 	{
-		writeln(person);
+		log(person);
 	}
 
 	result.close();
 
-	writeln();
+	log();
 }
 
 struct Person

@@ -75,7 +75,6 @@ mixin template DefaultBinaryConverters(Type)
 		}
 	}
 
-
 	/**
 	 * Default implementation of a field's binary representation conversion to psql data type.
 	 */
@@ -166,12 +165,14 @@ struct CharConverter
 	mixin DefaultConverters!ubyte;
 }
 
+/*
 /// ditto
-//@Oid!(char[64])(19)
-//struct NameConverter
-//{
-//	mixin DefaultConverters!(char[64]);
-//}
+@Oid!(char[64])(19)
+struct NameConverter
+{
+	mixin DefaultConverters!(char[64]);
+}
+*/
 
 /// ditto
 @Oid!i64(20)

@@ -1,0 +1,9 @@
+{
+	"name": "psql-tests",
+	"description": "",
+	"copyright": "Copyright © 2015, Yazan Dabain",
+	"authors": ["Yazan Dabain"],
+	"dependencies": {
+		"psql-native": { "path": "../" }
+	}
+}

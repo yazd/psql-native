@@ -1,8 +1,9 @@
 {
 	"name": "psql-native",
-	"description": "A minimal D application.",
-	"copyright": "Copyright © 2015, yazan",
-	"authors": ["yazan"],
+	"targetType": "library",
+	"description": "An implementation of postgres client protocol.",
+	"copyright": "Copyright © 2015, Yazan Dabain",
+	"authors": ["Yazan Dabain"],
 	"dependencies": {
 		"vibe-d": "~>0.7.22"
 	},
