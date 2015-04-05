@@ -175,7 +175,7 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 					portalName.length + 1 +
 					statementName.length + 1 +
 					u16.sizeof +
-					u16.sizeof * Args.length +
+					(Args.length > 0 ? u16.sizeof : 0) +
 					u16.sizeof +
 					i32.sizeof * Args.length +
 					dataSize +
