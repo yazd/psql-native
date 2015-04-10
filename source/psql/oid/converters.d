@@ -14,7 +14,7 @@ mixin template DefaultTextConverters(Type)
 	 * Default implementation of a field's text representation conversion to native data type.
 	 */
 	static
-	Type fromText(const(char[]) text)
+	Type fromText(scope const(char[]) text)
 	{
 		import std.conv : to;
 		return text.to!Type;
