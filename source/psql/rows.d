@@ -39,7 +39,7 @@ struct RowRange(RowType, FieldRepresentation representation)
 
 		static if (!isGenericRow)
 		{
-			ColumnMap!RowType[] m_mapping;
+			immutable(ColumnMap!RowType[]) m_mapping;
 		}
 	}
 
@@ -64,7 +64,7 @@ struct RowRange(RowType, FieldRepresentation representation)
 		this(Connection connection, const(Field[]) fields)
 		{
 			m_connection = connection;
-			buildMapping(fields);
+			m_mapping = cast(immutable) getMapping(fields);
 			popFront();
 		}
 	}
@@ -169,9 +169,9 @@ struct RowRange(RowType, FieldRepresentation representation)
 
 				if (size > 0)
 				{
-					if (m_mapping[columnIndex].fill !is null)
+					if (m_mapping[columnIndex] !is null)
 					{
-						m_mapping[columnIndex].fill(m_front, m_connection, size);
+						m_mapping[columnIndex](m_front, m_connection, size);
 					}
 					else
 					{
@@ -187,9 +187,9 @@ struct RowRange(RowType, FieldRepresentation representation)
 		/**
 		 * Builds the mapping from the fields to `RowType`.
 		 */
-		private void buildMapping(const(Field[]) fields)
+		private ColumnMap!RowType[] getMapping(const(Field[]) fields)
 		{
-			m_mapping = new ColumnMap!RowType[fields.length];
+			auto mapping = new ColumnMap!RowType[fields.length];
 			foreach (immutable i, const ref field; fields)
 			{
 				nameSwitch:
@@ -198,14 +198,15 @@ struct RowRange(RowType, FieldRepresentation representation)
 					foreach (dataMemberName; getDataMembers!RowType)
 					{
 						case dataMemberName:
-							m_mapping[i].fill = getMapFunction!(RowType, dataMemberName, representation)();
+							mapping[i] = getMapFunction!(RowType, dataMemberName, representation)();
 							break nameSwitch;
 					}
 
 					default:
-						m_mapping[i].fill = null;
+						mapping[i] = null;
 				}
 			}
+			return mapping;
 		}
 	}
 }
@@ -223,8 +224,4 @@ struct Row
 /**
  * Mapping used to read from connection and fill `RowType` directly.
  */
-private
-struct ColumnMap(RowType)
-{
-	void function(ref RowType row, Connection connection, u32 size) fill;
-}
+alias ColumnMap(RowType) = void function(ref RowType row, Connection connection, u32 size);
