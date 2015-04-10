@@ -146,23 +146,154 @@ struct InvalidConverter
 @Oid!bool(16)
 struct BoolConverter
 {
-	mixin DefaultConverters!bool;
+	static
+	bool fromText(scope const(char[]) text)
+	{
+		if (text == "t") return true;
+		else if (text == "f") return false;
+		assert(0, "invalid conversion: expected 't' or 'f'");
+	}
+
+	static
+	void toText(Connection connection, bool value)
+	{
+		connection.send!u32(1);
+		connection.send!ubyte(value ? 't' : 'f');
+	}
+
+	static
+	i32 toTextSize(bool value)
+	{
+		return 1;
+	}
+
+	static
+	void fromBinary(Connection connection, i32 size, ref bool field)
+	{
+		assert(size == 1);
+		ubyte[1] buffer;
+		connection.recv(buffer);
+		field = buffer[0] == 't' ? true : false;
+	}
+
+	static
+	void toBinary(Connection connection, bool value)
+	{
+		connection.send!u32(1);
+		connection.send!ubyte(value ? 't' : 'f');
+	}
+
+	static
+	i32 toBinarySize(bool value)
+	{
+		return 1;
+	}
 }
 
-/*
 /// ditto
-@Oid(17, -1)
-struct Bytea
+@Oid!(ubyte[])(17)
+struct ByteaConverter
 {
+	static
+	ubyte[] fromText(scope const(char[]) text)
+	{
+		if (text.length >= 2 && text[0] == '\\' && text[1] == 'x')
+		{
+			assert(text.length % 2 == 0, "expected even number of bytes");
 
+			ubyte[] result = new ubyte[text.length / 2 - 1];
+			for (int i = 2, k = 0; i < text.length; i += 2, k++)
+			{
+				import std.conv : to;
+				result[k] = text[i .. i + 2].to!ubyte(16);
+			}
+			return result;
+		}
+		else
+		{
+			// TODO: implement escape format for bytea
+			assert(0, "unimplemented text bytea conversion (possibly from escape format)");
+		}
+	}
+
+	static
+	void toText(Connection connection, ubyte[] value)
+	{
+		assert(0, "unimplemented text bytea conversion");
+	}
+
+	static
+	i32 toTextSize(ubyte[] value)
+	{
+		assert(0, "unimplemented text bytea conversion");
+	}
+
+	static
+	void fromBinary(Connection connection, i32 size, ref ubyte[] field)
+	{
+		field.length = size;
+		connection.recv(field[0 .. $]);
+	}
+
+	static
+	void toBinary(Connection connection, ubyte[] value)
+	{
+		assert(value.length <= i32.max, "too big byte array");
+		connection.send!i32(cast(i32) value.length);
+		connection.send(value);
+	}
+
+	static
+	i32 toBinarySize(ubyte[] value)
+	{
+		assert(value.length <= i32.max, "too big byte array");
+		return cast(i32) value.length;
+	}
 }
-*/
 
 /// ditto
 @Oid!ubyte(18)
 struct CharConverter
 {
-	mixin DefaultConverters!ubyte;
+	static
+	ubyte fromText(scope const(char[]) text)
+	{
+		assert(text.length == 1);
+		return cast(ubyte) text[0];
+	}
+
+	static
+	void toText(Connection connection, ubyte value)
+	{
+		connection.send!u32(1);
+		connection.send!ubyte(value);
+	}
+
+	static
+	i32 toTextSize(ubyte value)
+	{
+		return 1;
+	}
+
+	static
+	void fromBinary(Connection connection, i32 size, ref ubyte field)
+	{
+		assert(size == 1);
+		connection.recv((&field)[0 .. 1]);
+	}
+
+	static
+	void toBinary(Connection connection, ubyte value)
+	{
+		connection.send!u32(1);
+		connection.send!ubyte(value);
+	}
+
+	static
+	i32 toBinarySize(ubyte value)
+	{
+		return 1;
+	}
 }
 
 /*
@@ -216,4 +347,25 @@ struct TextConverter
 struct TextStringConverter
 {
 	mixin DefaultConverters!string;
+}
+
+/// ditto
+@Oid!u32(26)
+struct OidConverter
+{
+	mixin DefaultConverters!u32;
+}
+
+/// ditto
+@Oid!float(700)
+struct FloatConverter
+{
+	mixin DefaultConverters!float;
+}
+
+/// ditto
+@Oid!double(701)
+struct DoubleConverter
+{
+	mixin DefaultConverters!double;
 }
