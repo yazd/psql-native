@@ -373,6 +373,15 @@ final class Connection
 	}
 
 	/**
+	 * Sends a bool on the connection.
+	 */
+	package
+	void send(T)(T value) if (is(T == bool))
+	{
+		send!ubyte(value ? 1 : 0);
+	}
+
+	/**
 	 * Sends a numeric value using the proper endianness on the connection.
 	 */
 	package
@@ -393,6 +402,15 @@ final class Connection
 	{
 		import std.string;
 		m_connection.write(value.representation);
+	}
+
+	/**
+	 * Sends a byte array on the connection.
+	 */
+	package
+	void send(const ubyte[] value)
+	{
+		m_connection.write(value);
 	}
 
 	/**
