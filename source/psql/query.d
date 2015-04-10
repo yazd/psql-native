@@ -34,15 +34,8 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 
 	/**
 	 * Puts the connection back in a state where it can send new queries.
-	 *
-	 * Params:
-	 *	 consumeAll = if `consumeAll` is false, all data from the query must
-	 *								already be consumed.
-	 *                If `consumeAll` is true, all data left will be consumed
-	 *								until the connection can be put back in a state where
-	 *								it can send new queries.
 	 */
-	void close(bool consumeAll = false)
+	void close()
 	{
 		if (!m_done)
 		{
@@ -62,28 +55,20 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 
 					switch (response)
 					{
-						case Backend.commandComplete:
-							skipRecv(msgLength - u32size);
-							break;
-
 						static if (!isSimple)
 						{
 							case Backend.bindComplete:
+							case Backend.parameterDescription:
 							goto case;
 						}
 
+						case Backend.commandComplete:
 						case Backend.dataRow:
 						case Backend.emptyQueryResponse:
 						case Backend.rowDescription:
-							if (consumeAll)
-							{
-								skipRecv(msgLength - u32size);
-								break;
-							}
-							else
-							{
-								goto default;
-							}
+						case Backend.noData:
+							skipRecv(msgLength - u32size);
+							break;
 
 						case Backend.errorResponse:
 							handleErrorResponse(msgLength);
@@ -99,7 +84,7 @@ struct QueryResult(bool isSimple, FieldRepresentation representation)
 							break wait;
 
 						default:
-							debug writeln("Unhandled message: ", response);
+							debug writeln("Unhandled message: ", cast(Backend) response);
 							skipRecv(msgLength - u32size);
 							throw new UnhandledMessageException();
 					}
