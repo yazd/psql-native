@@ -171,16 +171,14 @@ struct BoolConverter
   void fromBinary(Connection connection, i32 size, ref bool field)
   {
     assert(size == 1);
-    ubyte[1] buffer;
-    connection.recv(buffer);
-    field = buffer[0] == 't' ? true : false;
+    connection.recv((cast(ubyte*) &field)[0 .. bool.sizeof]);
   }
 
   static
   void toBinary(Connection connection, bool value)
   {
     connection.send!u32(1);
-    connection.send!ubyte(value ? 't' : 'f');
+    connection.send!ubyte(value);
   }
 
   static
