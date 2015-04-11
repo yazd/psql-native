@@ -244,9 +244,24 @@ final class Connection
   }
 
   /**
+   * Creates an unnamed prepared statement and executes it
+   */
+  PreparedQueryResult execute(Args...)(string statement, Args args)
+  {
+    prepare("", statement);
+
+    PreparedQueryResult result = PreparedQueryResult(this);
+    result.sendBind("", "", args);
+    result.sendDescribe("");
+    result.sendExecute("");
+    sync();
+    return result;
+  }
+
+  /**
    * Executes a prepared statement.
    */
-  PreparedQueryResult execute(Args...)(string statementName, Args args)
+  PreparedQueryResult executePrepared(Args...)(string statementName, Args args)
   {
     PreparedQueryResult result = PreparedQueryResult(this);
     result.sendBind(statementName, "", args);

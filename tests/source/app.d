@@ -2,15 +2,6 @@ import std.exception;
 import std.stdio;
 import psql;
 
-debug(DoLog)
-{
-  alias log = writeln;
-}
-else
-{
-  void log(Args...)(Args args) {}
-}
-
 void main()
 {
   auto psql = new PSQL("test", "yazan", "127.0.0.1", 5432);
@@ -27,6 +18,8 @@ void main()
   testTypedRowSelect(conn);
   testHandleError(conn);
   testPreparedStatement(conn);
+  testAnonPreparedStatement1(conn);
+  testAnonPreparedStatement2(conn);
 }
 
 void createTable(Connection conn)
@@ -63,7 +56,7 @@ void fillTable(Connection conn)
       ($1, $2, $3, $4, $5, $6, $7, $8, $9)
   `);
 
-  conn.execute("insert_into_test",
+  conn.executePrepared("insert_into_test",
     true, cast(ubyte[])[1, 2, 3], ubyte('c'), long(42), short(41), int(43), "hello world", float(24.0), double(42.0)
   ).close();
 }
@@ -95,10 +88,9 @@ void testGenericRowSelect(Connection conn)
   {
     foreach (i, field; query.fields())
     {
-      log(field.name, ": ", cast(char[]) row.columns[i]);
+      writeln(field.name, ": ", cast(char[]) row.columns[i]);
     }
   }
-
   query.close();
 }
 
@@ -110,7 +102,7 @@ void testTwoCommandsQuery(Connection conn)
   {
     foreach (i, field; query.fields())
     {
-      log(field.name, ": ", cast(char[]) row.columns[i]);
+      writeln(field.name, ": ", cast(char[]) row.columns[i]);
     }
   }
 
@@ -118,7 +110,7 @@ void testTwoCommandsQuery(Connection conn)
   {
     foreach (i, field; query.fields())
     {
-      log(field.name, ": ", cast(char[]) row.columns[i]);
+      writeln(field.name, ": ", cast(char[]) row.columns[i]);
     }
   }
 
@@ -130,7 +122,7 @@ void testTypedRowSelect(Connection conn)
   auto query = conn.query("SELECT * FROM tbl_test");
   foreach (person; query.fill!TestS())
   {
-    log(person);
+    writeln(person);
   }
   query.close();
 }
@@ -141,7 +133,7 @@ void testTypedRowSelect(Connection conn)
 //  auto query = conn.query("INSERT INTO tbl_test (name, password, email) VALUES ('test', '123', 'email@email.com')");
 //  query.close();
 
-//  log();
+//  writeln();
 //}
 
 void testSimpleDelete(Connection conn)
@@ -168,12 +160,32 @@ void testHandleError(Connection conn)
 void testPreparedStatement(Connection conn)
 {
   conn.prepare("prep_stmt_test", "SELECT * FROM tbl_test WHERE int4Field = $1");
-  auto result = conn.execute("prep_stmt_test", 42);
+  auto result = conn.executePrepared("prep_stmt_test", 42);
   foreach (test; result.fill!TestS())
   {
-    log(test);
+    writeln(test);
   }
 
+  result.close();
+}
+
+void testAnonPreparedStatement1(Connection conn)
+{
+  auto result = conn.execute("SELECT * FROM tbl_test WHERE int4Field = $1", 42);
+  foreach (test; result.fill!TestS())
+  {
+    writeln(test);
+  }
+  result.close();
+}
+
+void testAnonPreparedStatement2(Connection conn)
+{
+  auto result = conn.execute("SELECT * FROM tbl_test LIMIT 2");
+  foreach (test; result.fill!TestS())
+  {
+    writeln(test);
+  }
   result.close();
 }
 
