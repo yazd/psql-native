@@ -4,188 +4,188 @@ import psql;
 
 debug(DoLog)
 {
-	alias log = writeln;
+  alias log = writeln;
 }
 else
 {
-	void log(Args...)(Args args) {}
+  void log(Args...)(Args args) {}
 }
 
 void main()
 {
-	auto psql = new PSQL("test", "yazan", "127.0.0.1", 5432);
-	auto conn = psql.lockConnection();
+  auto psql = new PSQL("test", "yazan", "127.0.0.1", 5432);
+  auto conn = psql.lockConnection();
 
-	createTable(conn);
-	fillTable(conn);
-	readTable(conn);
+  createTable(conn);
+  fillTable(conn);
+  readTable(conn);
 
-	testGenericRowSelect(conn);
-	testSimpleDelete(conn);
-	//testSimpleInsert(conn);
-	testTwoCommandsQuery(conn);
-	testTypedRowSelect(conn);
-	testHandleError(conn);
-	testPreparedStatement(conn);
+  testGenericRowSelect(conn);
+  testSimpleDelete(conn);
+  //testSimpleInsert(conn);
+  testTwoCommandsQuery(conn);
+  testTypedRowSelect(conn);
+  testHandleError(conn);
+  testPreparedStatement(conn);
 }
 
 void createTable(Connection conn)
 {
-	conn.query(`
-		DROP TABLE tbl_test;
-		CREATE TABLE tbl_test (
-			boolField bool,
-			byteaField bytea,
-			charField char,
-/*		nameField name,								*/
-			int8Field int8,
-			int2Field int2,
-/*		int2vectorField int2vector,		*/
-			int4Field int4,
-/*		regprocField regproc,					*/
-			textField text,
-/*		oidField oid,									*/
-/*		jsonField json,								*/
-/*		xmlField xml,									*/
-			float4Field float4,
-			float8Field float8
-/*		jsonbField jsonb 							*/
-		);
-	`).close();
+  conn.query(`
+    DROP TABLE tbl_test;
+    CREATE TABLE tbl_test (
+      boolField bool,
+      byteaField bytea,
+      charField char,
+/*    nameField name,               */
+      int8Field int8,
+      int2Field int2,
+/*    int2vectorField int2vector,   */
+      int4Field int4,
+/*    regprocField regproc,         */
+      textField text,
+/*    oidField oid,                 */
+/*    jsonField json,               */
+/*    xmlField xml,                 */
+      float4Field float4,
+      float8Field float8
+/*    jsonbField jsonb              */
+    );
+  `).close();
 }
 
 void fillTable(Connection conn)
 {
-	conn.prepare("insert_into_test", `
-		INSERT INTO tbl_test
-			(boolField, byteaField, charField, int8Field, int2Field, int4Field, textField, float4Field, float8Field)
-		VALUES
-		  ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`);
+  conn.prepare("insert_into_test", `
+    INSERT INTO tbl_test
+      (boolField, byteaField, charField, int8Field, int2Field, int4Field, textField, float4Field, float8Field)
+    VALUES
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  `);
 
-	conn.execute("insert_into_test",
-		true, cast(ubyte[])[1, 2, 3], ubyte('c'), long(42), short(41), int(43), "hello world", float(24.0), double(42.0)
-	).close();
+  conn.execute("insert_into_test",
+    true, cast(ubyte[])[1, 2, 3], ubyte('c'), long(42), short(41), int(43), "hello world", float(24.0), double(42.0)
+  ).close();
 }
 
 void readTable(Connection conn)
 {
-	auto result = conn.query(`SELECT * FROM tbl_test`);
-	foreach (row; result.rows())
-	{
-		foreach (i, field; result.fields())
-		{
-			writeln(field.name, ": ", cast(char[]) row.columns[i]);
-		}
-	}
-	result.close();
+  auto result = conn.query(`SELECT * FROM tbl_test`);
+  foreach (row; result.rows())
+  {
+    foreach (i, field; result.fields())
+    {
+      writeln(field.name, ": ", cast(char[]) row.columns[i]);
+    }
+  }
+  result.close();
 
-	result = conn.query(`SELECT * FROM tbl_test`);
-	foreach (row; result.fill!TestS())
-	{
-		writeln(row);
-	}
-	result.close();
+  result = conn.query(`SELECT * FROM tbl_test`);
+  foreach (row; result.fill!TestS())
+  {
+    writeln(row);
+  }
+  result.close();
 }
 
 void testGenericRowSelect(Connection conn)
 {
-	auto query = conn.query("SELECT * FROM tbl_test");
-	foreach (row; query.rows())
-	{
-		foreach (i, field; query.fields())
-		{
-			log(field.name, ": ", cast(char[]) row.columns[i]);
-		}
-	}
+  auto query = conn.query("SELECT * FROM tbl_test");
+  foreach (row; query.rows())
+  {
+    foreach (i, field; query.fields())
+    {
+      log(field.name, ": ", cast(char[]) row.columns[i]);
+    }
+  }
 
-	query.close();
+  query.close();
 }
 
 void testTwoCommandsQuery(Connection conn)
 {
-	auto query = conn.query("SELECT * FROM tbl_test; SELECT * FROM tbl_test");
+  auto query = conn.query("SELECT * FROM tbl_test; SELECT * FROM tbl_test");
 
-	foreach (row; query.rows())
-	{
-		foreach (i, field; query.fields())
-		{
-			log(field.name, ": ", cast(char[]) row.columns[i]);
-		}
-	}
+  foreach (row; query.rows())
+  {
+    foreach (i, field; query.fields())
+    {
+      log(field.name, ": ", cast(char[]) row.columns[i]);
+    }
+  }
 
-	foreach (row; query.rows())
-	{
-		foreach (i, field; query.fields())
-		{
-			log(field.name, ": ", cast(char[]) row.columns[i]);
-		}
-	}
+  foreach (row; query.rows())
+  {
+    foreach (i, field; query.fields())
+    {
+      log(field.name, ": ", cast(char[]) row.columns[i]);
+    }
+  }
 
-	query.close();
+  query.close();
 }
 
 void testTypedRowSelect(Connection conn)
 {
-	auto query = conn.query("SELECT * FROM tbl_test");
-	foreach (person; query.fill!TestS())
-	{
-		log(person);
-	}
-	query.close();
+  auto query = conn.query("SELECT * FROM tbl_test");
+  foreach (person; query.fill!TestS())
+  {
+    log(person);
+  }
+  query.close();
 }
 
 //void testSimpleInsert(Connection conn)
 //{
 
-//	auto query = conn.query("INSERT INTO tbl_test (name, password, email) VALUES ('test', '123', 'email@email.com')");
-//	query.close();
+//  auto query = conn.query("INSERT INTO tbl_test (name, password, email) VALUES ('test', '123', 'email@email.com')");
+//  query.close();
 
-//	log();
+//  log();
 //}
 
 void testSimpleDelete(Connection conn)
 {
-	auto query = conn.query("DELETE FROM tbl_test WHERE false");
-	query.close();
+  auto query = conn.query("DELETE FROM tbl_test WHERE false");
+  query.close();
 }
 
 void testHandleError(Connection conn)
 {
 
-	auto exception = collectException!ErrorResponseException(() {
-		// unique constraint problem
-		auto query = conn.query("INSERT INTO tbl_test (foo, bar) VALUES ('test', 'error')");
-		query.close();
-	}());
+  auto exception = collectException!ErrorResponseException(() {
+    // unique constraint problem
+    auto query = conn.query("INSERT INTO tbl_test (foo, bar) VALUES ('test', 'error')");
+    query.close();
+  }());
 
-	assert(exception);
-	assert(exception.message.length > 0);
+  assert(exception);
+  assert(exception.message.length > 0);
 
-	testGenericRowSelect(conn);
+  testGenericRowSelect(conn);
 }
 
 void testPreparedStatement(Connection conn)
 {
-	conn.prepare("prep_stmt_test", "SELECT * FROM tbl_test WHERE int4Field = $1");
-	auto result = conn.execute("prep_stmt_test", 42);
-	foreach (test; result.fill!TestS())
-	{
-		log(test);
-	}
+  conn.prepare("prep_stmt_test", "SELECT * FROM tbl_test WHERE int4Field = $1");
+  auto result = conn.execute("prep_stmt_test", 42);
+  foreach (test; result.fill!TestS())
+  {
+    log(test);
+  }
 
-	result.close();
+  result.close();
 }
 
 struct TestS
 {
-	bool boolfield;
-	ubyte[] byteafield;
-	ubyte charfield;
-	long int8field;
-	short int2field;
-	int int4field;
-	string textfield;
-	float float4field;
-	double float8field;
+  bool boolfield;
+  ubyte[] byteafield;
+  ubyte charfield;
+  long int8field;
+  short int2field;
+  int int4field;
+  string textfield;
+  float float4field;
+  double float8field;
 }

@@ -1,7 +1,7 @@
 module psql.oid.tests;
 
 import
-	psql.oid;
+  psql.oid;
 
 static assert(getSize!(int, FieldRepresentation.binary)(0) == int.sizeof);
 static assert(getSize!(int, FieldRepresentation.text)(0) == 1);
