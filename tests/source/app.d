@@ -13,23 +13,84 @@ else
 
 void main()
 {
-	auto psql = new PSQL("codename", "yazan", "127.0.0.1", 5432);
+	auto psql = new PSQL("test", "yazan", "127.0.0.1", 5432);
 	auto conn = psql.lockConnection();
+
+	createTable(conn);
+	fillTable(conn);
+	readTable(conn);
 
 	testGenericRowSelect(conn);
 	testSimpleDelete(conn);
-	testSimpleInsert(conn);
+	//testSimpleInsert(conn);
 	testTwoCommandsQuery(conn);
 	testTypedRowSelect(conn);
 	testHandleError(conn);
 	testPreparedStatement(conn);
 }
 
+void createTable(Connection conn)
+{
+	conn.query(`
+		DROP TABLE tbl_test;
+		CREATE TABLE tbl_test (
+			boolField bool,
+			byteaField bytea,
+			charField char,
+/*		nameField name,								*/
+			int8Field int8,
+			int2Field int2,
+/*		int2vectorField int2vector,		*/
+			int4Field int4,
+/*		regprocField regproc,					*/
+			textField text,
+/*		oidField oid,									*/
+/*		jsonField json,								*/
+/*		xmlField xml,									*/
+			float4Field float4,
+			float8Field float8
+/*		jsonbField jsonb 							*/
+		);
+	`).close();
+}
+
+void fillTable(Connection conn)
+{
+	conn.prepare("insert_into_test", `
+		INSERT INTO tbl_test
+			(boolField, byteaField, charField, int8Field, int2Field, int4Field, textField, float4Field, float8Field)
+		VALUES
+		  ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`);
+
+	conn.execute("insert_into_test",
+		true, cast(ubyte[])[1, 2, 3], ubyte('c'), long(42), short(41), int(43), "hello world", float(24.0), double(42.0)
+	).close();
+}
+
+void readTable(Connection conn)
+{
+	auto result = conn.query(`SELECT * FROM tbl_test`);
+	foreach (row; result.rows())
+	{
+		foreach (i, field; result.fields())
+		{
+			writeln(field.name, ": ", cast(char[]) row.columns[i]);
+		}
+	}
+	result.close();
+
+	result = conn.query(`SELECT * FROM tbl_test`);
+	foreach (row; result.fill!TestS())
+	{
+		writeln(row);
+	}
+	result.close();
+}
+
 void testGenericRowSelect(Connection conn)
 {
-	log("QUERY: ", "SELECT * FROM tbl_people");
-	auto query = conn.query("SELECT * FROM tbl_people");
-
+	auto query = conn.query("SELECT * FROM tbl_test");
 	foreach (row; query.rows())
 	{
 		foreach (i, field; query.fields())
@@ -39,13 +100,11 @@ void testGenericRowSelect(Connection conn)
 	}
 
 	query.close();
-	log();
 }
 
 void testTwoCommandsQuery(Connection conn)
 {
-	log("QUERY: ", "SELECT * FROM tbl_people; SELECT * FROM tbl_people");
-	auto query = conn.query("SELECT * FROM tbl_people; SELECT * FROM tbl_people");
+	auto query = conn.query("SELECT * FROM tbl_test; SELECT * FROM tbl_test");
 
 	foreach (row; query.rows())
 	{
@@ -64,81 +123,69 @@ void testTwoCommandsQuery(Connection conn)
 	}
 
 	query.close();
-	log();
 }
 
 void testTypedRowSelect(Connection conn)
 {
-	log("QUERY: ", "SELECT * FROM tbl_people");
-	auto query = conn.query("SELECT * FROM tbl_people");
-
-	foreach (person; query.fill!Person())
+	auto query = conn.query("SELECT * FROM tbl_test");
+	foreach (person; query.fill!TestS())
 	{
 		log(person);
 	}
-
 	query.close();
-	log();
 }
 
-void testSimpleInsert(Connection conn)
-{
-	log("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
+//void testSimpleInsert(Connection conn)
+//{
 
-	auto query = conn.query("INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
-	query.close();
+//	auto query = conn.query("INSERT INTO tbl_test (name, password, email) VALUES ('test', '123', 'email@email.com')");
+//	query.close();
 
-	log();
-}
+//	log();
+//}
 
 void testSimpleDelete(Connection conn)
 {
-	log("QUERY: ", "DELETE FROM tbl_people WHERE name = 'test'");
-
-	auto query = conn.query("DELETE FROM tbl_people WHERE name = 'test'");
+	auto query = conn.query("DELETE FROM tbl_test WHERE false");
 	query.close();
-
-	log();
 }
 
 void testHandleError(Connection conn)
 {
-	log("QUERY: ", "INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
 
 	auto exception = collectException!ErrorResponseException(() {
 		// unique constraint problem
-		auto query = conn.query("INSERT INTO tbl_people (name, password, email) VALUES ('test', '123', 'email@email.com')");
+		auto query = conn.query("INSERT INTO tbl_test (foo, bar) VALUES ('test', 'error')");
 		query.close();
 	}());
 
 	assert(exception);
 	assert(exception.message.length > 0);
-	assert(exception.detail.length > 0);
 
 	testGenericRowSelect(conn);
 }
 
 void testPreparedStatement(Connection conn)
 {
-	log("QUERY: ", "SELECT * FROM tbl_people");
-
-	conn.prepare("get_all_people", "SELECT * FROM tbl_people WHERE name = $1");
-
-	auto result = conn.execute("get_all_people", "Yazan Dabain");
-	foreach (person; result.fill!Person())
+	conn.prepare("prep_stmt_test", "SELECT * FROM tbl_test WHERE int4Field = $1");
+	auto result = conn.execute("prep_stmt_test", 42);
+	foreach (test; result.fill!TestS())
 	{
-		log(person);
+		log(test);
 	}
 
 	result.close();
-
-	log();
 }
 
-struct Person
+struct TestS
 {
-	int id;
-	string name;
-	string password;
-	string email;
+	bool boolfield;
+	ubyte[] byteafield;
+	ubyte charfield;
+	long int8field;
+	short int2field;
+	int int4field;
+	string textfield;
+	float float4field;
+	double float8field;
 }
